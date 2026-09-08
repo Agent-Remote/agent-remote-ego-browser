@@ -302,6 +302,10 @@ probe_runtime="$work/probe-runtime"
 probe_bin="$work/probe-bin"
 mkdir -p "$probe_root/bin" "$probe_root/installer" "$probe_root/support" \
   "$probe_bin" "$probe_launch_agents"
+printf '#!/bin/sh\nprintf "Darwin\\n"\n' >"$fake_system/uname"
+printf '#!/bin/sh\nprintf "501\\n"\n' >"$fake_system/id"
+printf '#!/bin/sh\nexit 0\n' >"$fake_system/launchctl"
+chmod 0700 "$fake_system/uname" "$fake_system/id" "$fake_system/launchctl"
 for relative in \
   bin/ego-browser-bridge \
   bin/ego-browser-device \
@@ -385,10 +389,6 @@ printf '#!/bin/sh\nprintf "%%s\\n" "ego-browser-independent-runtime"\n' \
 chmod 0700 "$standalone_runtime"
 runtime_digest=$(shasum -a 256 "$standalone_runtime" | awk '{print $1}')
 test "$("$standalone_runtime")" = "ego-browser-independent-runtime"
-printf '#!/bin/sh\nprintf "Darwin\\n"\n' >"$fake_system/uname"
-printf '#!/bin/sh\nprintf "501\\n"\n' >"$fake_system/id"
-printf '#!/bin/sh\nexit 0\n' >"$fake_system/launchctl"
-chmod 0700 "$fake_system/uname" "$fake_system/id" "$fake_system/launchctl"
 printf 'bridge\n' >"$install_root/releases/$current_version/bin/ego-browser-bridge"
 ln -s "$install_root/releases/$current_version" "$install_root/current"
 printf 'plist\n' >"$launch_agents/dev.agentremote.ego-browser.bridge.plist"
