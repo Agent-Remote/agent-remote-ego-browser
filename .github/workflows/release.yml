@@ -121,7 +121,8 @@ jobs:
           sbom="dist/release/agent-remote-ego-browser-wrapper-${LABEL}-${VERSION}.spdx.json"
           cosign sign-blob --yes --bundle "$archive.sigstore.json" "$archive"
           cosign sign-blob --yes --bundle "$sbom.sigstore.json" "$sbom"
-          sha256sum --check "$archive.sha256"
+          (cd "$(dirname "$archive")" && \
+            sha256sum --check "$(basename "$archive").sha256")
           jq -e '.spdxVersion | startswith("SPDX-")' "$sbom" >/dev/null
           for evidence in "$archive" "$sbom"; do
             cosign verify-blob \
