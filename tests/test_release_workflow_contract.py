@@ -38,9 +38,18 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
     def test_release_contract_keeps_readiness_false_without_learning_key(self) -> None:
         manifest_tool = (ROOT / "scripts/release_manifest.py").read_text()
         build_script = (ROOT / "scripts/build-community-release.sh").read_text()
+        learning_verifier = (ROOT / "scripts/verify-learning-bundle.sh").read_text()
         for content in (manifest_tool, build_script):
             self.assertIn("learning_bundle_signing_private_key_unavailable", content)
             self.assertRegex(content, r'production_ready["\']?:?\s*(False|false)')
+        self.assertIn(
+            "target/x86_64-apple-darwin/release/ego-browser-learning-bundle",
+            learning_verifier,
+        )
+        self.assertIn(
+            "target/aarch64-apple-darwin/release/ego-browser-learning-bundle",
+            learning_verifier,
+        )
 
     def test_repository_has_no_forbidden_product_reference(self) -> None:
         forbidden = "agent-remote-" + "device"

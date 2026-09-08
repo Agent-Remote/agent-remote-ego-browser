@@ -66,7 +66,7 @@ Node runtime broker -> Server opaque WebSocket relay
 
 | 范围 | 要求 |
 | --- | --- |
-| Bridge、Device Client、远端 wrapper | `0.1.3` |
+| Bridge、Device Client、远端 wrapper | `0.1.4` |
 | 协议 | `ego-browser-bridge-v1` |
 | 官方 Skill | `1.2.3` |
 | 本地 `ego-browser` runtime | `0.4.7.4` |
@@ -82,10 +82,10 @@ Node runtime broker -> Server opaque WebSocket relay
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.3.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.3.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.3.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.3.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.4.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.4.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.4.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.4.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```

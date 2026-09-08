@@ -46,6 +46,8 @@ if [ -z "$verifier" ]; then
   for candidate in \
     "$package_root/bin/ego-browser-learning-bundle" \
     "$repo_root/target/release/ego-browser-learning-bundle" \
+    "$repo_root/target/x86_64-apple-darwin/release/ego-browser-learning-bundle" \
+    "$repo_root/target/aarch64-apple-darwin/release/ego-browser-learning-bundle" \
     "$repo_root/target/debug/ego-browser-learning-bundle"; do
     if [ -x "$candidate" ]; then
       verifier=$candidate
