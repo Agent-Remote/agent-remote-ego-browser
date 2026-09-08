@@ -305,7 +305,13 @@ mkdir -p "$probe_root/bin" "$probe_root/installer" "$probe_root/support" \
 printf '#!/bin/sh\nprintf "Darwin\\n"\n' >"$fake_system/uname"
 printf '#!/bin/sh\nprintf "501\\n"\n' >"$fake_system/id"
 printf '#!/bin/sh\nexit 0\n' >"$fake_system/launchctl"
-chmod 0700 "$fake_system/uname" "$fake_system/id" "$fake_system/launchctl"
+printf '%s\n' '#!/bin/sh' \
+  'set -eu' \
+  'src=$1' \
+  'dst=$2' \
+  'cp -R "$src"/. "$dst"/' >"$fake_system/ditto"
+chmod 0700 "$fake_system/uname" "$fake_system/id" "$fake_system/launchctl" \
+  "$fake_system/ditto"
 for relative in \
   bin/ego-browser-bridge \
   bin/ego-browser-device \
