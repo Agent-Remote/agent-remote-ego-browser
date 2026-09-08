@@ -1,0 +1,28 @@
+[package]
+name = "ego-browser-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "macOS local ego-browser execution bridge."
+
+[[bin]]
+name = "ego-browser-bridge"
+path = "src/main.rs"
+
+[dependencies]
+ego-browser-bridge-protocol = { path = "../protocol" }
+ego-browser-device = { path = "../device-client" }
+futures-util.workspace = true
+libc.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile = "3.12"
+time.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+
+[dev-dependencies]
+x25519-dalek.workspace = true

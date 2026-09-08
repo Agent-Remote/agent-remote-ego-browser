@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-remote.dev/schemas/ego-browser-bridge-v1/inner-response.schema.json",
+  "title": "Ego Browser Bridge inner execute response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "type",
+    "request_id",
+    "sequence",
+    "status",
+    "exit_code",
+    "stdout",
+    "stderr",
+    "artifacts",
+    "duration_ms"
+  ],
+  "properties": {
+    "protocol": { "const": "ego-browser-bridge-v1-inner" },
+    "type": { "const": "execute_result" },
+    "request_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "status": {
+      "enum": [
+        "completed",
+        "script_error",
+        "timeout",
+        "cancelled",
+        "bridge_unavailable",
+        "ego_runtime_unavailable",
+        "lease_expired",
+        "binding_revoked",
+        "protocol_error",
+        "artifact_error",
+        "concurrency_conflict",
+        "lease_renewal_required",
+        "unknown_result"
+      ]
+    },
+    "exit_code": { "type": ["integer", "null"] },
+    "stdout": { "type": "string", "maxLength": 4194304 },
+    "stderr": { "type": "string", "maxLength": 1048576 },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact_id", "media_type", "size_bytes", "width", "height", "content_b64"],
+        "properties": {
+          "artifact_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "media_type": { "enum": ["image/png", "image/jpeg"] },
+          "size_bytes": { "type": "integer", "minimum": 1, "maximum": 12582912 },
+          "width": { "type": "integer", "minimum": 1 },
+          "height": { "type": "integer", "minimum": 1 },
+          "content_b64": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "duration_ms": { "type": "integer", "minimum": 0, "maximum": 120000 }
+  }
+}

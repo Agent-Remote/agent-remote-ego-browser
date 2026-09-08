@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentremote.dev/schemas/ego-browser/release-manifest-v1.json",
+  "title": "Agent Remote ego-browser release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "component",
+    "version",
+    "protocol_versions",
+    "wrapper_version",
+    "bridge_version",
+    "device_client_version",
+    "skill_version",
+    "local_ego_browser_runtime_version",
+    "remote_platform",
+    "local_platform",
+    "profile",
+    "signing_type",
+    "signer_certificate_sha256",
+    "production_ready",
+    "readiness_blockers",
+    "apple_notarized",
+    "public_distribution",
+    "hardened_runtime",
+    "nested_signatures_verified",
+    "outbound_policy",
+    "credential_profile",
+    "learning_bundle_digest",
+    "learning_bundle_signing_key_id",
+    "vulnerability_report",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "component": { "const": "agent-remote-ego-browser" },
+    "version": { "$ref": "#/$defs/semver" },
+    "protocol_versions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "const": "ego-browser-bridge-v1" }
+    },
+    "wrapper_version": { "$ref": "#/$defs/semver" },
+    "bridge_version": { "$ref": "#/$defs/semver" },
+    "device_client_version": { "$ref": "#/$defs/semver" },
+    "skill_version": { "const": "1.2.3" },
+    "local_ego_browser_runtime_version": { "const": "0.4.7.4" },
+    "remote_platform": { "const": "linux" },
+    "local_platform": { "const": "macos" },
+    "profile": { "const": "community-local-trust" },
+    "signing_type": { "const": "project-self-signed" },
+    "signer_certificate_sha256": { "$ref": "#/$defs/sha256" },
+    "production_ready": { "type": "boolean" },
+    "readiness_blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+    },
+    "apple_notarized": { "const": false },
+    "public_distribution": { "const": false },
+    "hardened_runtime": { "const": true },
+    "nested_signatures_verified": { "const": true },
+    "outbound_policy": { "const": "application-enforced" },
+    "credential_profile": { "const": "community_file" },
+    "learning_bundle_digest": {
+      "oneOf": [
+        { "$ref": "#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "learning_bundle_signing_key_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "vulnerability_report": { "$ref": "#/$defs/evidence" },
+    "artifacts": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": { "$ref": "#/$defs/artifact" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "production_ready": { "const": true } },
+        "required": ["production_ready"]
+      },
+      "then": {
+        "properties": {
+          "readiness_blockers": { "maxItems": 0 },
+          "learning_bundle_digest": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "production_ready": { "const": false } },
+        "required": ["production_ready"]
+      },
+      "then": {
+        "properties": {
+          "readiness_blockers": {
+            "minItems": 1,
+            "contains": { "const": "learning_bundle_signing_private_key_unavailable" }
+          },
+          "learning_bundle_digest": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.+][0-9A-Za-z.-]+)?$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256", "sigstore_bundle"],
+      "properties": {
+        "name": { "$ref": "#/$defs/fileName" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "sigstore_bundle": { "$ref": "#/$defs/fileName" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "platform",
+        "arch",
+        "libc",
+        "sha256",
+        "size_bytes",
+        "sbom",
+        "sigstore_bundle",
+        "provenance"
+      ],
+      "properties": {
+        "name": { "$ref": "#/$defs/fileName" },
+        "kind": { "enum": ["remote_wrapper", "macos_local_components"] },
+        "platform": { "enum": ["linux", "macos"] },
+        "arch": { "enum": ["amd64", "arm64", "universal"] },
+        "libc": { "enum": ["glibc", "musl", null] },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "sbom": { "$ref": "#/$defs/fileName" },
+        "sigstore_bundle": { "$ref": "#/$defs/fileName" },
+        "provenance": { "const": true }
+      }
+    },
+    "fileName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,254}$"
+    }
+  }
+}

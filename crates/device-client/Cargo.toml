@@ -1,0 +1,29 @@
+[package]
+name = "ego-browser-device"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Independent ego-browser device registration and binding client."
+
+[[bin]]
+name = "ego-browser-device"
+path = "src/main.rs"
+
+[dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+ego-browser-bridge-protocol = { path = "../protocol" }
+libc.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+x25519-dalek.workspace = true
+
+[dev-dependencies]
+tempfile = "3.12"

@@ -1,0 +1,340 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic release version without a v prefix
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: ego-browser-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2.9.2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit@0.22.2
+      - name: Run complete tag-bound quality gate
+        run: scripts/run-quality-checks.sh
+      - uses: sigstore/cosign-installer@v4.0.0
+      - name: Verify immutable source and create vulnerability evidence
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${VERSION#v}"
+          test "$GITHUB_REF" = "refs/tags/v${version}"
+          test "$(tr -d '[:space:]' < VERSION)" = "$version"
+          resolved=$(cargo metadata --format-version=1 --no-deps | python3 -c \
+            'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "ego-browser-bridge-protocol"))')
+          test "$resolved" = "$version"
+          report="agent-remote-ego-browser-${version}.cargo-audit.json"
+          cargo audit --json > "$report"
+          sha256sum "$report" > "$report.sha256"
+          cosign sign-blob --yes --bundle "$report.sigstore.json" "$report"
+          cosign verify-blob \
+            --bundle "$report.sigstore.json" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$report"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ego-browser-vulnerability-${{ inputs.version }}
+          if-no-files-found: error
+          path: |
+            agent-remote-ego-browser-${{ inputs.version }}.cargo-audit.json
+            agent-remote-ego-browser-${{ inputs.version }}.cargo-audit.json.sha256
+            agent-remote-ego-browser-${{ inputs.version }}.cargo-audit.json.sigstore.json
+
+  wrappers:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            label: linux-amd64-glibc
+          - target: aarch64-unknown-linux-gnu
+            label: linux-arm64-glibc
+          - target: x86_64-unknown-linux-musl
+            label: linux-amd64-musl
+          - target: aarch64-unknown-linux-musl
+            label: linux-arm64-musl
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          key: wrapper-${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cross@0.2.5
+      - name: Build Linux wrapper archive
+        env:
+          BUILD_TOOL: cross
+          LABEL: ${{ matrix.label }}
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ inputs.version }}
+        run: scripts/package-wrapper-release.sh
+      - name: Extract wrapper for SBOM inventory
+        env:
+          LABEL: ${{ matrix.label }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          mkdir sbom-root
+          tar -xzf "dist/release/agent-remote-ego-browser-wrapper-${LABEL}-${VERSION}.tar.gz" -C sbom-root
+          test -x sbom-root/ego-browser
+          test "$(tr -d '[:space:]' < sbom-root/VERSION)" = "$VERSION"
+      - name: Generate wrapper SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: sbom-root
+          format: spdx-json
+          output-file: dist/release/agent-remote-ego-browser-wrapper-${{ matrix.label }}-${{ inputs.version }}.spdx.json
+      - uses: sigstore/cosign-installer@v4.0.0
+      - name: Sign and verify wrapper evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABEL: ${{ matrix.label }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          archive="dist/release/agent-remote-ego-browser-wrapper-${LABEL}-${VERSION}.tar.gz"
+          sbom="dist/release/agent-remote-ego-browser-wrapper-${LABEL}-${VERSION}.spdx.json"
+          cosign sign-blob --yes --bundle "$archive.sigstore.json" "$archive"
+          cosign sign-blob --yes --bundle "$sbom.sigstore.json" "$sbom"
+          sha256sum --check "$archive.sha256"
+          jq -e '.spdxVersion | startswith("SPDX-")' "$sbom" >/dev/null
+          for evidence in "$archive" "$sbom"; do
+            cosign verify-blob \
+              --bundle "$evidence.sigstore.json" \
+              --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "$evidence"
+          done
+      - name: Attest wrapper provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/release/agent-remote-ego-browser-wrapper-${{ matrix.label }}-${{ inputs.version }}.tar.gz
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ego-browser-wrapper-${{ matrix.label }}-${{ inputs.version }}
+          if-no-files-found: error
+          path: dist/release/*
+
+  macos:
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 50
+    environment: production-community-release
+    outputs:
+      certificate-sha256: ${{ steps.certificate.outputs.sha256 }}
+      learning-bundle-digest: ${{ steps.readiness.outputs.learning-bundle-digest }}
+      production-ready: ${{ steps.readiness.outputs.production-ready }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6.3.0
+        with:
+          python-version: "3.13"
+      - uses: Swatinem/rust-cache@v2.9.2
+      - name: Import persistent project signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.COMMUNITY_SIGNING_P12_BASE64 }}
+          p12-password: ${{ secrets.COMMUNITY_SIGNING_P12_PASSWORD }}
+          keychain: ego_browser_community_signing
+      - name: Validate public certificate pin
+        id: certificate
+        env:
+          CERTIFICATE_SHA256: ${{ vars.COMMUNITY_SIGNER_CERTIFICATE_SHA256 }}
+        run: |
+          [[ "$CERTIFICATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          echo "sha256=$CERTIFICATE_SHA256" >> "$GITHUB_OUTPUT"
+      - name: Build and verify hardened universal components
+        env:
+          LEARNING_BUNDLE_ARCHIVE_BASE64: ${{ secrets.EGO_BROWSER_LEARNING_BUNDLE_ARCHIVE_BASE64 }}
+          LEARNING_BUNDLE_DIGEST: ${{ vars.EGO_BROWSER_LEARNING_BUNDLE_DIGEST }}
+          LEARNING_BUNDLE_SIGNING_KEY_ID: ${{ vars.EGO_BROWSER_LEARNING_BUNDLE_KEY_ID }}
+          SIGNING_IDENTITY: ${{ secrets.COMMUNITY_SIGNING_IDENTITY }}
+          SIGNER_CERTIFICATE_SHA256: ${{ vars.COMMUNITY_SIGNER_CERTIFICATE_SHA256 }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${LEARNING_BUNDLE_ARCHIVE_BASE64:-}" ]; then
+            bundle_root="$RUNNER_TEMP/ego-browser-learning-bundle"
+            printf '%s' "$LEARNING_BUNDLE_ARCHIVE_BASE64" |
+              python3 scripts/extract-learning-bundle.py \
+                --base64-stdin --output "$bundle_root"
+            export LEARNING_BUNDLE_ROOT="$bundle_root"
+          elif [ -n "${LEARNING_BUNDLE_DIGEST:-}" ]; then
+            echo "a learning-bundle digest requires the protected bundle archive" >&2
+            exit 2
+          fi
+          scripts/build-community-release.sh
+          scripts/verify-community-release.sh \
+            dist/community-release/package \
+            "$SIGNER_CERTIFICATE_SHA256" "$VERSION"
+          scripts/package-community-release.sh
+      - name: Record Bridge production readiness
+        id: readiness
+        env:
+          CERTIFICATE_SHA256: ${{ vars.COMMUNITY_SIGNER_CERTIFICATE_SHA256 }}
+          LEARNING_BUNDLE_DIGEST: ${{ vars.EGO_BROWSER_LEARNING_BUNDLE_DIGEST }}
+          LEARNING_BUNDLE_KEY_ID: ${{ vars.EGO_BROWSER_LEARNING_BUNDLE_KEY_ID }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          signing="dist/community-release/package/SIGNING-EVIDENCE.json"
+          digest=$(jq -r '.learning_bundle_digest // ""' "$signing")
+          key_id="${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-01}"
+          if [ -n "$digest" ]; then
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+            if [ -n "${LEARNING_BUNDLE_DIGEST:-}" ]; then
+              expected_digest="${LEARNING_BUNDLE_DIGEST#sha256:}"
+              [[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]]
+              test "$digest" = "$expected_digest"
+            fi
+            jq -e --arg key "$key_id" --arg digest "$digest" \
+              '.production_ready == true and .readiness_blockers == [] and
+               .nested_signatures_verified == true and
+               .signer_certificate_sha256 == env.CERTIFICATE_SHA256 and
+               .learning_bundle_digest == $digest and
+               .learning_bundle_signing_key_id == $key' \
+              "$signing" >/dev/null
+            echo "learning-bundle-digest=$digest" >> "$GITHUB_OUTPUT"
+            echo "production-ready=true" >> "$GITHUB_OUTPUT"
+          else
+            jq -e '.production_ready == false and
+              .signer_certificate_sha256 == env.CERTIFICATE_SHA256 and
+              .learning_bundle_digest == null and
+              (.readiness_blockers | index("learning_bundle_signing_private_key_unavailable")) != null' \
+              "$signing" >/dev/null
+            echo "learning-bundle-digest=" >> "$GITHUB_OUTPUT"
+            echo "production-ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Generate macOS component SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: dist/community-release/package
+          format: spdx-json
+          output-file: dist/release/agent-remote-ego-browser-macos-universal-${{ inputs.version }}.spdx.json
+      - uses: sigstore/cosign-installer@v4.0.0
+      - name: Sign and verify macOS evidence
+        env:
+          CERTIFICATE_SHA256: ${{ vars.COMMUNITY_SIGNER_CERTIFICATE_SHA256 }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          archive="dist/release/agent-remote-ego-browser-macos-universal-${VERSION}.tar.gz"
+          sbom="dist/release/agent-remote-ego-browser-macos-universal-${VERSION}.spdx.json"
+          signing="dist/community-release/package/SIGNING-EVIDENCE.json"
+          cp "$signing" "dist/release/agent-remote-ego-browser-macos-universal-${VERSION}.community-signing.json"
+          signing="dist/release/agent-remote-ego-browser-macos-universal-${VERSION}.community-signing.json"
+          for evidence in "$archive" "$sbom" "$signing"; do
+            (cd "$(dirname "$evidence")" && \
+              shasum -a 256 "$(basename "$evidence")" > "$(basename "$evidence").sha256")
+            cosign sign-blob --yes --bundle "$evidence.sigstore.json" "$evidence"
+            cosign verify-blob \
+              --bundle "$evidence.sigstore.json" \
+              --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "$evidence"
+          done
+          jq -e '.spdxVersion | startswith("SPDX-")' "$sbom" >/dev/null
+          jq -e '.version == env.VERSION and .signer_certificate_sha256 == env.CERTIFICATE_SHA256' "$signing" >/dev/null
+      - name: Attest macOS package provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/release/agent-remote-ego-browser-macos-universal-${{ inputs.version }}.tar.gz
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ego-browser-macos-${{ inputs.version }}
+          if-no-files-found: error
+          path: dist/release/*
+
+  publish:
+    needs: [validate, wrappers, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          path: release-artifacts
+          merge-multiple: true
+      - uses: sigstore/cosign-installer@v4.0.0
+      - name: Generate, sign, and verify aggregate release manifest
+        env:
+          CERTIFICATE_SHA256: ${{ needs.macos.outputs.certificate-sha256 }}
+          LEARNING_BUNDLE_DIGEST: ${{ needs.macos.outputs.learning-bundle-digest }}
+          LEARNING_BUNDLE_KEY_ID: ${{ vars.EGO_BROWSER_LEARNING_BUNDLE_KEY_ID }}
+          PRODUCTION_READY: ${{ needs.macos.outputs.production-ready }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          manifest="release-artifacts/agent-remote-ego-browser-${VERSION}.release-manifest.json"
+          manifest_args=(python3 scripts/release_manifest.py generate \
+            --version "$VERSION" \
+            --certificate-sha256 "$CERTIFICATE_SHA256" \
+            --artifact-dir release-artifacts \
+            --output "$manifest")
+          if [ -n "${LEARNING_BUNDLE_DIGEST:-}" ]; then
+            manifest_args+=(
+              --learning-bundle-digest "$LEARNING_BUNDLE_DIGEST"
+              --learning-bundle-key-id "${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-01}"
+            )
+          fi
+          "${manifest_args[@]}"
+          python3 scripts/release_manifest.py verify \
+            --manifest "$manifest" \
+            --artifact-dir release-artifacts \
+            --expected-version "$VERSION" \
+            --expected-certificate-sha256 "$CERTIFICATE_SHA256" >/dev/null
+          if [ "$PRODUCTION_READY" = "true" ]; then
+            jq -e '.production_ready == true and .readiness_blockers == [] and
+              .learning_bundle_digest != null' "$manifest" >/dev/null
+          else
+            jq -e '.production_ready == false and
+              (.readiness_blockers | index("learning_bundle_signing_private_key_unavailable")) != null and
+              .learning_bundle_digest == null' "$manifest" >/dev/null
+          fi
+          (cd "$(dirname "$manifest")" && \
+            sha256sum "$(basename "$manifest")" > "$(basename "$manifest").sha256")
+          cosign sign-blob --yes --bundle "$manifest.sigstore.json" "$manifest"
+          cosign verify-blob \
+            --bundle "$manifest.sigstore.json" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$manifest"
+      - name: Attest release manifest provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: release-artifacts/agent-remote-ego-browser-${{ inputs.version }}.release-manifest.json
+      - name: Publish release artifacts
+        uses: softprops/action-gh-release@v3.0.1
+        with:
+          tag_name: v${{ inputs.version }}
+          name: agent-remote-ego-browser v${{ inputs.version }}
+          prerelease: ${{ needs.macos.outputs.production-ready != 'true' }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-artifacts/*

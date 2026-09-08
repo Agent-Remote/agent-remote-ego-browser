@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-remote.dev/schemas/ego-browser-bridge-v1/inner-execute.schema.json",
+  "title": "Ego Browser Bridge inner execute request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "type",
+    "script",
+    "timeout_ms",
+    "cwd_label",
+    "default_task_space",
+    "concurrency_mode",
+    "task_space_scope",
+    "tab_scope",
+    "allowlist_revision",
+    "learning_bundle_digest"
+  ],
+  "properties": {
+    "protocol": { "const": "ego-browser-bridge-v1-inner" },
+    "type": { "const": "execute" },
+    "script": { "type": "string", "minLength": 1, "maxLength": 1048576 },
+    "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 120000 },
+    "cwd_label": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "default_task_space": {
+      "type": "string",
+      "minLength": 14,
+      "maxLength": 256,
+      "pattern": "^agent-remote:[A-Za-z0-9_:-]+$"
+    },
+    "concurrency_mode": { "enum": ["task_space_tab", "task_space", "binding"] },
+    "task_space_scope": { "type": ["string", "null"], "maxLength": 256 },
+    "tab_scope": { "type": ["string", "null"], "maxLength": 256 },
+    "allowlist_revision": { "type": "integer", "minimum": 1 },
+    "learning_bundle_digest": {
+      "type": ["string", "null"],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

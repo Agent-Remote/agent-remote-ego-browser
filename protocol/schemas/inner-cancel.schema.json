@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-remote.dev/schemas/ego-browser-bridge-v1/inner-cancel.schema.json",
+  "title": "Ego Browser Bridge inner cancel request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "type",
+    "request_id",
+    "sequence"
+  ],
+  "properties": {
+    "protocol": { "const": "ego-browser-bridge-v1-inner" },
+    "type": { "const": "cancel" },
+    "request_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sequence": { "type": "integer", "minimum": 1 }
+  }
+}

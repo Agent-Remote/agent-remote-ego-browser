@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "canonical_json": [
+    {
+      "input": { "z": 1, "a": { "d": 2, "c": 3 } },
+      "canonical": "{\"a\":{\"c\":3,\"d\":2},\"z\":1}"
+    },
+    {
+      "input": { "unicode": "browser", "array": [3, 2, 1], "flag": true },
+      "canonical": "{\"array\":[3,2,1],\"flag\":true,\"unicode\":\"browser\"}"
+    }
+  ],
+  "device_pop_v2": {
+    "operation": "connect_binding",
+    "device_id": "123e4567-e89b-12d3-a456-426614174000",
+    "device_generation": 2,
+    "operation_generation": 7,
+    "binding_id": "123e4567-e89b-12d3-a456-426614174111",
+    "release_profile": "community-local-trust",
+    "credential_profile": "community_file",
+    "server_host": "control.example.test",
+    "challenge": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+    "payload": {
+      "allowlist_revision": 3,
+      "generation": 7,
+      "learning_bundle_digest": null,
+      "signer_certificate_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "canonical_payload": "{\"allowlist_revision\":3,\"generation\":7,\"learning_bundle_digest\":null,\"signer_certificate_sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}",
+    "message_sha256": "3b3c3681969616daaead3bf1070435149a10db495f080f8cf54447ad0f15daa5",
+    "public_key": "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+    "signature": "U0Y2BmH08Ne9Iz9xPjJu3TjTVyP5WaRV1vvrgDybXxlsvuCbvi0r1Jtf0GvqvOaAGTASfFzPGvHjON_b6F9_Dw"
+  },
+  "valid_outer": {
+    "protocol": "ego-browser-bridge-v1",
+    "channel": "ego_browser_bridge",
+    "relay_binding_kind": "ego_browser",
+    "type": "execute",
+    "request_id": "request-vector-1",
+    "binding_id": "binding-vector-1",
+    "generation": 3,
+    "sequence": 17,
+    "direction": "request",
+    "payload_bytes": 3,
+    "nonce": "AAAAAAAAAAAAAAAA",
+    "ciphertext": "AQID",
+    "auth_tag": "AAAAAAAAAAAAAAAAAAAAAA",
+    "key_wrap": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "valid_cancel_outer": {
+    "protocol": "ego-browser-bridge-v1",
+    "channel": "ego_browser_bridge",
+    "relay_binding_kind": "ego_browser",
+    "type": "cancel",
+    "request_id": "request-vector-1",
+    "binding_id": "binding-vector-1",
+    "generation": 3,
+    "sequence": 17,
+    "direction": "request",
+    "payload_bytes": 3,
+    "nonce": "AAAAAAAAAAAAAAAA",
+    "ciphertext": "AQID",
+    "auth_tag": "AAAAAAAAAAAAAAAAAAAAAA",
+    "key_wrap": ""
+  },
+  "invalid_outer_json": [
+    "{\"protocol\":\"ego-browser-bridge-v1\",\"protocol\":\"other\"}",
+    "{\"protocol\":\"ego-browser-bridge-v1\"} trailing"
+  ],
+  "invalid_outer": [
+    {
+      "protocol": "ego-browser-bridge-v1",
+      "channel": "device_control",
+      "relay_binding_kind": "ego_browser",
+      "type": "execute",
+      "request_id": "request-vector-1",
+      "binding_id": "binding-vector-1",
+      "generation": 3,
+      "sequence": 17,
+      "direction": "request",
+      "payload_bytes": 3,
+      "nonce": "AAAAAAAAAAAAAAAA",
+      "ciphertext": "AQID",
+      "auth_tag": "AAAAAAAAAAAAAAAAAAAAAA",
+      "key_wrap": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "protocol": "ego-browser-bridge-v1",
+      "channel": "ego_browser_bridge",
+      "relay_binding_kind": "ego_browser",
+      "type": "execute_result",
+      "request_id": "request-vector-1",
+      "binding_id": "binding-vector-1",
+      "generation": 3,
+      "sequence": 17,
+      "direction": "request",
+      "payload_bytes": 3,
+      "nonce": "AAAAAAAAAAAAAAAA",
+      "ciphertext": "AQID",
+      "auth_tag": "AAAAAAAAAAAAAAAAAAAAAA",
+      "key_wrap": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  ],
+  "capability": {
+    "bridge_protocol_version": "ego-browser-bridge-v1",
+    "remote_wrapper_version": "0.1.0",
+    "local_ego_browser_runtime_version": "0.4.7.4",
+    "ego_lite_runtime_version": "0.4.7.4",
+    "skill_version": "1.2.3",
+    "release_profile": "logic-test",
+    "signer_certificate_sha256": "development",
+    "credential_profile": "community_file",
+    "allowlist_revision": 2,
+    "allowlist_roots_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "learning_bundle_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "max_parallel_requests": 4,
+    "max_script_bytes": 1048576,
+    "max_execute_timeout_ms": 120000,
+    "supported_concurrency": ["task_space_tab", "task_space", "binding"],
+    "capabilities": [
+      "ego_browser_script_execute_v1",
+      "ego_browser_snapshot_v1",
+      "ego_browser_screenshot_artifact_v1",
+      "ego_browser_task_space_v1",
+      "ego_browser_concurrency_v1",
+      "ego_browser_file_allowlist_v1",
+      "ego_browser_site_learning_v1"
+    ],
+    "remote_platform": "linux",
+    "local_platform": "macos"
+  },
+  "valid_inner": {
+    "protocol": "ego-browser-bridge-v1-inner",
+    "type": "execute",
+    "script": "cliLog('vector')",
+    "timeout_ms": 120000,
+    "cwd_label": "workspace-default",
+    "default_task_space": "agent-remote:session-vector-1",
+    "concurrency_mode": "task_space_tab",
+    "task_space_scope": "agent-remote:session-vector-1",
+    "tab_scope": "target-vector-1",
+    "allowlist_revision": 2,
+    "learning_bundle_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "valid_cancel_inner": {
+    "protocol": "ego-browser-bridge-v1-inner",
+    "type": "cancel",
+    "request_id": "request-vector-1",
+    "sequence": 17
+  }
+}

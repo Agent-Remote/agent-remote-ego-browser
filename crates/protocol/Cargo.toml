@@ -1,0 +1,28 @@
+[package]
+name = "ego-browser-bridge-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Canonical protocol and safety primitives for the ego-browser bridge."
+
+[[bin]]
+name = "ego-browser-learning-bundle"
+path = "src/bin/ego-browser-learning-bundle.rs"
+
+[dependencies]
+base64.workspace = true
+chacha20poly1305.workspace = true
+ed25519-dalek.workspace = true
+libc.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+x25519-dalek.workspace = true
+
+[dev-dependencies]
+tempfile = "3.12"

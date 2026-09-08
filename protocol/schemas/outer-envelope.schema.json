@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-remote.dev/schemas/ego-browser-bridge-v1/outer-envelope.schema.json",
+  "title": "Ego Browser Bridge outer envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "channel",
+    "relay_binding_kind",
+    "type",
+    "request_id",
+    "binding_id",
+    "generation",
+    "sequence",
+    "direction",
+    "payload_bytes",
+    "nonce",
+    "ciphertext",
+    "auth_tag",
+    "key_wrap"
+  ],
+  "properties": {
+    "protocol": { "const": "ego-browser-bridge-v1" },
+    "channel": { "const": "ego_browser_bridge" },
+    "relay_binding_kind": { "const": "ego_browser" },
+    "type": { "enum": ["execute", "execute_result", "cancel"] },
+    "request_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "binding_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "generation": { "type": "integer", "minimum": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "direction": { "enum": ["request", "response"] },
+    "payload_bytes": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+    "nonce": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16}$" },
+    "ciphertext": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9_-]+$" },
+    "auth_tag": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$" },
+    "key_wrap": { "type": "string", "pattern": "^[A-Za-z0-9_-]*$" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "type": { "const": "execute" },
+        "direction": { "const": "request" },
+        "key_wrap": { "minLength": 123, "maxLength": 123 }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "cancel" },
+        "direction": { "const": "request" },
+        "key_wrap": { "const": "" }
+      }
+    },
+    {
+      "properties": {
+        "type": { "const": "execute_result" },
+        "direction": { "const": "response" },
+        "key_wrap": { "const": "" }
+      }
+    }
+  ]
+}
