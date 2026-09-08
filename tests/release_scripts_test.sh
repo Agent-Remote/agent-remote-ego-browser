@@ -17,7 +17,10 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/ego-browser-release-test.XXXXXX")
 uninstall_work=""
 cleanup() {
   rm -rf -- "$work"
-  [ -z "$uninstall_work" ] || rm -rf -- "$uninstall_work"
+  if [ -n "$uninstall_work" ] && [ -d "$uninstall_work" ]; then
+    chmod -R u+w -- "$uninstall_work" >/dev/null 2>&1 || true
+    rm -rf -- "$uninstall_work"
+  fi
 }
 trap cleanup EXIT
 
@@ -286,6 +289,97 @@ mkdir -p \
   "$launch_agents" \
   "$(dirname "$standalone_runtime")" \
   "$fake_system"
+
+# Exercise the installer against the real ego lite probe format.  The package
+# and verification commands are deliberately local fixtures; this keeps the
+# test deterministic while still running the complete version-discovery path.
+probe_root="$work/probe-package"
+probe_archive="$work/agent-remote-ego-browser-macos-universal-${current_version}-probe.tar.gz"
+probe_manifest="$work/probe-manifest.json"
+probe_launch_agents="$uninstall_work/probe-launch-agents"
+probe_install_root="$uninstall_work/probe-install"
+probe_runtime="$work/probe-runtime"
+probe_bin="$work/probe-bin"
+mkdir -p "$probe_root/bin" "$probe_root/installer" "$probe_root/support" \
+  "$probe_bin" "$probe_launch_agents"
+for relative in \
+  bin/ego-browser-bridge \
+  bin/ego-browser-device \
+  installer/install-macos.sh \
+  installer/uninstall-macos.sh \
+  installer/rollback-macos.sh \
+  support/clear_verified_quarantine.py \
+  support/release_manifest.py \
+  support/release-manifest.schema.json \
+  support/verify-community-release.sh \
+  SIGNING-EVIDENCE.json \
+  VERSION \
+  LICENSE; do
+  mkdir -p "$(dirname "$probe_root/$relative")"
+done
+printf '#!/bin/sh\nexit 0\n' >"$probe_root/support/verify-community-release.sh"
+printf 'raise SystemExit(0)\n' >"$probe_root/support/clear_verified_quarantine.py"
+printf 'raise SystemExit(0)\n' >"$probe_root/support/release_manifest.py"
+printf '{}\n' >"$probe_root/support/release-manifest.schema.json"
+printf '{"production_ready":false,"readiness_blockers":["learning_bundle_signing_private_key_unavailable"],"learning_bundle_digest":null}\n' \
+  >"$probe_root/SIGNING-EVIDENCE.json"
+printf '%s\n' "$current_version" >"$probe_root/VERSION"
+printf 'fixture\n' >"$probe_root/LICENSE"
+printf 'fixture\n' >"$probe_root/bin/ego-browser-bridge"
+printf 'fixture\n' >"$probe_root/bin/ego-browser-device"
+printf 'fixture\n' >"$probe_root/installer/install-macos.sh"
+printf 'fixture\n' >"$probe_root/installer/uninstall-macos.sh"
+printf 'fixture\n' >"$probe_root/installer/rollback-macos.sh"
+chmod 0700 "$probe_root/bin/ego-browser-bridge" "$probe_root/bin/ego-browser-device" \
+  "$probe_root/support/verify-community-release.sh"
+COPYFILE_DISABLE=1 tar -C "$probe_root" -czf "$probe_archive" \
+  bin installer support SIGNING-EVIDENCE.json VERSION LICENSE
+probe_digest=$(shasum -a 256 "$probe_archive" | awk '{print $1}')
+python3 - "$probe_manifest" "$(basename "$probe_archive")" \
+  "$probe_digest" "$inventory_certificate" "$current_version" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "version": sys.argv[5],
+    "signer_certificate_sha256": sys.argv[4],
+    "artifacts": [{
+        "name": sys.argv[2],
+        "kind": "macos_local_components",
+        "sha256": sys.argv[3],
+    }],
+}))
+PY
+printf '#!/bin/sh\nexit 0\n' >"$probe_bin/cosign"
+printf '%s\n' '#!/bin/sh' \
+  'if [ "${1:-}" = "--version" ]; then' \
+  '  printf "%s\n" "ego-browser 0.4.7.4"' \
+  '  printf "%s\n" "  chromium 150.0.7871.101"' \
+  '  printf "%s\n" "  node v24.18.0"' \
+  '  exit 0' \
+  'fi' \
+  'exit 64' >"$probe_runtime"
+chmod 0700 "$probe_bin/cosign" "$probe_runtime"
+: >"$work/probe-manifest.sigstore.json"
+: >"$work/probe-archive.sigstore.json"
+probe_output=$(PATH="$fake_system:$probe_bin:/usr/bin:/bin" \
+  RELEASE_MANIFEST_VERIFIER="$probe_root/support/release_manifest.py" \
+  EGO_BROWSER_INSTALL_ROOT="$probe_install_root" \
+  EGO_BROWSER_LAUNCH_AGENTS_DIR="$probe_launch_agents" \
+  bash "$root/installer/install-macos.sh" \
+    --archive "$probe_archive" \
+    --archive-sigstore-bundle "$work/probe-archive.sigstore.json" \
+    --manifest "$probe_manifest" \
+    --manifest-sigstore-bundle "$work/probe-manifest.sigstore.json" \
+    --certificate-sha256 "$inventory_certificate" \
+    --ego-browser "$probe_runtime" \
+    --confirm-local-trust --no-start)
+grep -q "installed ego-browser Bridge $current_version" <<<"$probe_output"
+grep -q "production_ready=false" <<<"$probe_output"
+test -L "$probe_install_root/current"
+test -x "$probe_install_root/current/bin/ego-browser-bridge"
+
 printf '#!/bin/sh\nprintf "%%s\\n" "ego-browser-independent-runtime"\n' \
   >"$standalone_runtime"
 chmod 0700 "$standalone_runtime"

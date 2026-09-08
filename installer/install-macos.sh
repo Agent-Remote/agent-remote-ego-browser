@@ -89,6 +89,12 @@ staging=""
 pin_staging=""
 cleanup() {
   rm -f -- "$metadata"
+  # The verified package is deliberately made read-only before activation.  If
+  # a later check fails, make the temporary extraction writable so cleanup can
+  # remove the complete staging tree without leaking signed learning files.
+  if [ -n "$work" ] && [ -d "$work" ]; then
+    chmod -R u+w -- "$work" >/dev/null 2>&1 || true
+  fi
   rm -rf -- "$work"
   [ -z "$staging" ] || rm -rf -- "$staging"
   [ -z "$pin_staging" ] || rm -f -- "$pin_staging"
@@ -246,7 +252,27 @@ PY
 )
 runtime_version=$(
   env -i HOME="$HOME" PATH="/usr/bin:/bin" "$ego_browser_path" --version \
-    | python3 -c 'import json,sys; value=json.load(sys.stdin); print(value["ego_browser_version"])'
+    | python3 -c '
+import json
+import re
+import sys
+
+raw = sys.stdin.read()
+version = None
+try:
+    value = json.loads(raw)
+except json.JSONDecodeError:
+    lines = raw.splitlines()
+    if len(lines) == 3 and lines[0].startswith("ego-browser "):
+        version = lines[0][len("ego-browser "):]
+else:
+    if isinstance(value, dict):
+        version = value.get("ego_browser_version")
+
+if not isinstance(version, str) or re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}", version) is None:
+    raise SystemExit("ego-browser runtime probe is malformed")
+print(version)
+'
 )
 if [ "$runtime_version" != "0.4.7.4" ]; then
   echo "local ego-browser runtime version $runtime_version is incompatible; expected 0.4.7.4" >&2
