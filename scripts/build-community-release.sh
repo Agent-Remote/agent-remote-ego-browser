@@ -73,7 +73,7 @@ verify_binary() {
   grep -Eq '^CodeDirectory .*flags=.*\(.*runtime.*\)' <<<"$details"
   certificate_prefix=$(mktemp "${TMPDIR:-/tmp}/ego-browser-cert.XXXXXX")
   rm -f -- "$certificate_prefix"
-  codesign --display --extract-certificates "$certificate_prefix" "$binary"
+  codesign --display --extract-certificates="$certificate_prefix" "$binary"
   actual=$(shasum -a 256 "${certificate_prefix}0" | awk '{print $1}')
   rm -f -- "${certificate_prefix}0" "${certificate_prefix}1" "${certificate_prefix}2"
   if [ "$actual" != "$expected_certificate_sha256" ]; then

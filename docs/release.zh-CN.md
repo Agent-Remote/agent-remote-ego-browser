@@ -2,7 +2,7 @@
 
 ## 证据 profile
 
-release `0.1.1` 的目标为 `community-local-trust`：
+release `0.1.2` 的目标为 `community-local-trust`：
 
 | 声明 | 必须值 |
 | --- | --- |
@@ -52,7 +52,7 @@ manifest 固定其准确文件名、大小、digest、版本、平台、release 
 8. 再次确认 full trust，创建新 generation，运行 `--doctor` 和单用户 canary；不重放旧
    permit 或 request。
 
-兼容版本是准确约束：wrapper/Bridge/Device Client `0.1.1`、协议
+兼容版本是准确约束：wrapper/Bridge/Device Client `0.1.2`、协议
 `ego-browser-bridge-v1`、Skill `1.2.3`、本地 runtime `0.4.7.4`。未知或不完整 capability
 均 fail closed，且不存在浏览器或 transport fallback。
 
