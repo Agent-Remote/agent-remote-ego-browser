@@ -19,7 +19,7 @@ PROTOCOL = "ego-browser-bridge-v1"
 SKILL_VERSION = "1.2.3"
 LOCAL_RUNTIME_VERSION = "0.4.7.4"
 READINESS_BLOCKER = "learning_bundle_signing_private_key_unavailable"
-LEARNING_KEY_ID = "ego-browser-learning-2026-01"
+LEARNING_KEY_ID = "ego-browser-learning-2026-09"
 # Keep the blocked release contract explicit for reviewers and compatibility checks:
 # The blocked JSON shape is `"production_ready": false` until a verified bundle exists.
 BLOCKED_PRODUCTION_READY = False

@@ -66,7 +66,7 @@ Each request uses an X25519-wrapped ChaCha20-Poly1305 session key. Routing ident
 
 | Surface | Required value |
 | --- | --- |
-| Bridge, Device Client, remote wrapper | `0.1.2` |
+| Bridge, Device Client, remote wrapper | `0.1.3` |
 | Protocol | `ego-browser-bridge-v1` |
 | Official Skill | `1.2.3` |
 | Local `ego-browser` runtime | `0.4.7.4` |
@@ -82,10 +82,10 @@ The current unpublished build is for development and release inspection only. A 
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.2.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.2.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.2.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.2.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.3.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.3.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.3.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.3.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```

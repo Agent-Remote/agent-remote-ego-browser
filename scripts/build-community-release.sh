@@ -14,7 +14,7 @@ expected_certificate_sha256=${SIGNER_CERTIFICATE_SHA256:?SIGNER_CERTIFICATE_SHA2
 out_dir=${OUT_DIR:-$repo_root/dist/community-release}
 learning_bundle_root=${LEARNING_BUNDLE_ROOT:-}
 learning_bundle_digest=${LEARNING_BUNDLE_DIGEST:-}
-learning_bundle_key_id=${LEARNING_BUNDLE_SIGNING_KEY_ID:-ego-browser-learning-2026-01}
+learning_bundle_key_id=${LEARNING_BUNDLE_SIGNING_KEY_ID:-ego-browser-learning-2026-09}
 
 if [ "$version" != "$(tr -d '[:space:]' < "$repo_root/VERSION")" ]; then
   echo "VERSION does not match the immutable source version" >&2
