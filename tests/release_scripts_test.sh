@@ -310,8 +310,21 @@ printf '%s\n' '#!/bin/sh' \
   'src=$1' \
   'dst=$2' \
   'cp -R "$src"/. "$dst"/' >"$fake_system/ditto"
+printf '%s\n' '#!/bin/sh' \
+  'set -eu' \
+  'if [ "${1:-}" = "-fh" ]; then' \
+  '  shift' \
+  '  exec /bin/mv -f "$@"' \
+  'fi' \
+  'exec /bin/mv "$@"' >"$fake_system/mv"
+printf '%s\n' '#!/bin/sh' \
+  'set -eu' \
+  '[ "${1:-}" = "-lint" ]' \
+  'shift' \
+  'exec python3 -c '"'"'import plistlib, sys; [plistlib.load(open(path, "rb")) for path in sys.argv[1:]]'"'"' "$@"' \
+  >"$fake_system/plutil"
 chmod 0700 "$fake_system/uname" "$fake_system/id" "$fake_system/launchctl" \
-  "$fake_system/ditto"
+  "$fake_system/ditto" "$fake_system/mv" "$fake_system/plutil"
 for relative in \
   bin/ego-browser-bridge \
   bin/ego-browser-device \
