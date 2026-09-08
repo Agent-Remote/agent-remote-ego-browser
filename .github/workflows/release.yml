@@ -149,6 +149,7 @@ jobs:
     outputs:
       certificate-sha256: ${{ steps.certificate.outputs.sha256 }}
       learning-bundle-digest: ${{ steps.readiness.outputs.learning-bundle-digest }}
+      learning-bundle-key-id: ${{ steps.readiness.outputs.learning-bundle-key-id }}
       production-ready: ${{ steps.readiness.outputs.production-ready }}
     steps:
       - uses: actions/checkout@v7.0.0
@@ -206,7 +207,7 @@ jobs:
           set -euo pipefail
           signing="dist/community-release/package/SIGNING-EVIDENCE.json"
           digest=$(jq -r '.learning_bundle_digest // ""' "$signing")
-          key_id="${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-01}"
+          key_id="${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-09}"
           if [ -n "$digest" ]; then
             [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
             if [ -n "${LEARNING_BUNDLE_DIGEST:-}" ]; then
@@ -222,6 +223,7 @@ jobs:
                .learning_bundle_signing_key_id == $key' \
               "$signing" >/dev/null
             echo "learning-bundle-digest=$digest" >> "$GITHUB_OUTPUT"
+            echo "learning-bundle-key-id=$key_id" >> "$GITHUB_OUTPUT"
             echo "production-ready=true" >> "$GITHUB_OUTPUT"
           else
             jq -e '.production_ready == false and
@@ -230,6 +232,7 @@ jobs:
               (.readiness_blockers | index("learning_bundle_signing_private_key_unavailable")) != null' \
               "$signing" >/dev/null
             echo "learning-bundle-digest=" >> "$GITHUB_OUTPUT"
+            echo "learning-bundle-key-id=$key_id" >> "$GITHUB_OUTPUT"
             echo "production-ready=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Generate macOS component SBOM
@@ -287,7 +290,7 @@ jobs:
         env:
           CERTIFICATE_SHA256: ${{ needs.macos.outputs.certificate-sha256 }}
           LEARNING_BUNDLE_DIGEST: ${{ needs.macos.outputs.learning-bundle-digest }}
-          LEARNING_BUNDLE_KEY_ID: ${{ vars.EGO_BROWSER_LEARNING_BUNDLE_KEY_ID }}
+          LEARNING_BUNDLE_KEY_ID: ${{ needs.macos.outputs.learning-bundle-key-id }}
           PRODUCTION_READY: ${{ needs.macos.outputs.production-ready }}
           VERSION: ${{ inputs.version }}
         run: |
@@ -301,7 +304,7 @@ jobs:
           if [ -n "${LEARNING_BUNDLE_DIGEST:-}" ]; then
             manifest_args+=(
               --learning-bundle-digest "$LEARNING_BUNDLE_DIGEST"
-              --learning-bundle-key-id "${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-01}"
+              --learning-bundle-key-id "${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-09}"
             )
           fi
           "${manifest_args[@]}"

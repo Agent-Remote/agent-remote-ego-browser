@@ -25,6 +25,8 @@ class ReleaseWorkflowContractTests(unittest.TestCase):
             "scripts/extract-learning-bundle.py",
             "CERTIFICATE_SHA256: ${{ vars.COMMUNITY_SIGNER_CERTIFICATE_SHA256 }}",
             "LEARNING_BUNDLE_KEY_ID",
+            "learning-bundle-key-id: ${{ steps.readiness.outputs.learning-bundle-key-id }}",
+            "LEARNING_BUNDLE_KEY_ID: ${{ needs.macos.outputs.learning-bundle-key-id }}",
             "PRODUCTION_READY",
             "prerelease: ${{ needs.macos.outputs.production-ready != 'true' }}",
         ):
