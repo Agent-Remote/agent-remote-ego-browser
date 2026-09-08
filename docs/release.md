@@ -2,7 +2,7 @@
 
 ## Evidence profile
 
-Release `0.1.5` targets `community-local-trust`:
+Release `0.1.6` targets `community-local-trust`:
 
 | Claim | Required value |
 | --- | --- |
@@ -59,7 +59,7 @@ sizes, digests, versions, platforms, release claims, and signing certificate.
 8. Reconfirm full trust, create a fresh generation, and run `--doctor` plus a
    single-user canary. Old permits and requests are never replayed.
 
-Compatibility is exact: wrapper/Bridge/Device Client `0.1.5`, protocol
+Compatibility is exact: wrapper/Bridge/Device Client `0.1.6`, protocol
 `ego-browser-bridge-v1`, Skill `1.2.3`, and local runtime `0.4.7.4`. Unknown or
 partial capabilities fail closed. There is no browser or transport fallback.
 

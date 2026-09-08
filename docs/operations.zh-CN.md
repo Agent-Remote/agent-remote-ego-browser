@@ -17,10 +17,10 @@
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.5.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.5.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.5.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.5.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.6.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.6.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.6.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.6.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```
