@@ -24,8 +24,8 @@ keyless Sigstore identity tied to `release.yml@refs/tags/vVERSION`, publishes
 SPDX SBOMs and provenance attestations. The workflow publishes a stable release
 only when the generated manifest is production-ready with no blockers;
 otherwise it publishes a prerelease. Release `0.1.7` passed this component gate
-and its stable GitHub release is recorded as published by the certified root
-composition.
+and its stable GitHub release is published. Root compositions independently pin
+the exact Bridge release and evidence they have certified.
 
 ## Preparing a release
 

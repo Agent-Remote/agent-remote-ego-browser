@@ -22,8 +22,8 @@ release `0.1.7` 的目标为 `community-local-trust`：
 Actions 使用绑定到 `release.yml@refs/tags/vVERSION` 的 keyless Sigstore identity 对
 release asset 签名，并发布 SPDX SBOM 与 provenance attestation。只有生成的 manifest
 已 production-ready 且 blocker 为空时，workflow 才发布 stable release；否则发布
-prerelease。`0.1.7` 已通过该组件门禁，其 stable GitHub release 也已记录在经认证的 root
-composition 中。
+prerelease。`0.1.7` 已通过该组件门禁，其 stable GitHub release 已发布。root composition
+会独立固定其已认证的准确 Bridge release 与证据。
 
 ## 准备发布
 

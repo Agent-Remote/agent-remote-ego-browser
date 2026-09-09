@@ -17,8 +17,9 @@ The official remote `ego-browser` Skill keeps its normal heredoc interface. Its 
 
 ## Release Status
 
-The certified root composition records Bridge `0.1.7` with
-`production_ready=true`, `release_published=true`, and `readiness_blockers=[]`.
+The stable Bridge `0.1.7` release records `production_ready=true`,
+`release_published=true`, and `readiness_blockers=[]`. Root compositions
+independently pin the exact Bridge release they have certified.
 
 The stable GitHub release satisfies the `community-local-trust` evidence profile with a retained, release-signed Site Learning bundle. It remains `apple_notarized=false` and `public_distribution=false`. Component readiness does not mean that a production environment has deployed or canaried it: keep `EGO_BROWSER_BRIDGE_ENABLED=false` until the exact certified root bundle is installed and verified and the real ego lite single-user canary passes.
 

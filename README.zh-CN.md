@@ -17,8 +17,9 @@
 
 ## 发布状态
 
-经认证的 root composition 已记录 Bridge `0.1.7`：`production_ready=true`、
-`release_published=true`，且 `readiness_blockers=[]`。
+stable Bridge `0.1.7` release 已记录 `production_ready=true`、
+`release_published=true`，且 `readiness_blockers=[]`。root composition 会独立固定其已认证的
+准确 Bridge release。
 
 该 stable GitHub release 已通过 `community-local-trust` 证据 profile，并包含由留存 key 签名的 Site Learning bundle；它仍为 `apple_notarized=false`、`public_distribution=false`。组件就绪不代表生产环境已经部署或完成 canary：在安装并验证准确的 root bundle、且真实 ego lite 单用户 canary 通过前，必须保持 `EGO_BROWSER_BRIDGE_ENABLED=false`。
 
