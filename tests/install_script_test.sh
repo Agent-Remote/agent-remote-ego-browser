@@ -94,7 +94,9 @@ if command -v shasum >/dev/null 2>&1; then
 else
   archive_digest=$(sha256sum "$work/archive.tar.gz" | awk '{print $1}')
 fi
-archive_size=$(stat -f '%z' "$work/archive.tar.gz" 2>/dev/null || stat -c '%s' "$work/archive.tar.gz")
+# `wc -c` is available on both the BSD and GNU userlands used by CI.  Avoid
+# `stat -f`, whose format flag means filesystem information on GNU stat.
+archive_size=$(wc -c <"$work/archive.tar.gz" | tr -d '[:space:]')
 printf '%s\n' "{\"version\":\"0.1.9\",\"component\":\"agent-remote-ego-browser\",\"local_platform\":\"macos\",\"signer_certificate_sha256\":\"1b1527d1c0ac6b3a1e95ccd7d4e6462ece9f5a42d2f4d309d09170588a4197e5\",\"artifacts\":[{\"name\":\"agent-remote-ego-browser-macos-universal-0.1.9.tar.gz\",\"kind\":\"macos_local_components\",\"sha256\":\"$archive_digest\",\"size_bytes\":$archive_size}]}" \
   >"$work/manifest.json"
 
