@@ -4,6 +4,12 @@ All notable changes to this repository are recorded here.
 
 ## Unreleased
 
+- feat(install): add a one-command macOS bootstrap installer for ego lite and
+  the verified Bridge, with optional registration and explicit session claim.
+- harden(install): authenticate release inputs before executing the packaged
+  installer and snapshot caller-supplied files in a private temporary directory.
+- test: cover bootstrap argument, trust, archive, and runtime contracts.
+
 ## 0.1.9 - 2026-09-09
 
 - release: prepare 0.1.9 from v0.1.8 with repository-owned version metadata only.

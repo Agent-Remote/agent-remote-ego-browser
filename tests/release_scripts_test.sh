@@ -212,7 +212,7 @@ release_section = re.search(
 )
 assert release_section is not None
 assert release_section.group("body").strip()
-assert "repository-owned version metadata only" in release_section.group("body")
+assert "one-command macOS bootstrap installer" in release_section.group("body")
 for relative in invariants:
     assert (after / relative).read_bytes() == (before / relative).read_bytes(), relative
 PY

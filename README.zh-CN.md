@@ -96,6 +96,36 @@ Node runtime broker -> Server opaque WebSocket relay
 
 前置条件、注册、policy 设置、可观测性、恢复和卸载流程见[安装与运维](docs/operations.zh-CN.md)。
 
+### 一键安装
+
+在已登录的 macOS 用户终端中，可以用下面的命令完成依赖检查、ego lite 安装（缺失时）、签名校验和 Bridge 安装：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
+  bash -s -- --version 0.1.9 --confirm-local-trust
+```
+
+如果还要在安装后注册并绑定一个明确的远端 session：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
+  bash -s -- \
+    --version 0.1.9 \
+    --server https://agent-remote.example.com \
+    --token USER_REGISTRATION_TOKEN \
+    --session-id EXACT_TOOL_SESSION_ID \
+    --confirm-local-trust \
+    --confirm-full-trust
+```
+
+脚本会自动安装缺失的 Homebrew `cosign`，先校验 release archive 和 manifest 后才执行归档内安装器，并校验固定版本的官方 ego lite 安装脚本。首次运行仍需在 ego lite GUI 中完成 onboarding；脚本不会自动猜选候选 session。`--token` 应使用短期 registration token，且不要提交到 shell 历史或聊天记录。
+
+脚本内置当前持久项目证书 pin。证书轮换或使用自定义仓库时，需额外传入 `--certificate-sha256`。完整选项见：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | bash -s -- --help
+```
+
 ## 命令
 
 注册独立 Device Client，并绑定一个准确的运行中 tool session：

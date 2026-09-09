@@ -13,6 +13,17 @@
 
 The installer does not install, modify, or remove ego lite.
 
+## One-command bootstrap
+
+To perform dependency checks, install ego lite when it is missing, and install the Bridge in one run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
+  bash -s -- --version 0.1.9 --confirm-local-trust
+```
+
+The bootstrap script authenticates the archive and manifest before executing the packaged installer, then invokes that signed installer again; it does not bypass archive, manifest, Sigstore, certificate-pin, or runtime-version checks. The logged-in macOS user must complete the first ego lite GUI onboarding. Add `--server`, `--token`, `--session-id`, and `--confirm-full-trust` to register and claim one exact session in the same run; without an exact session ID the script registers only and never guesses a claim.
+
 ## Verify and install
 
 ```sh

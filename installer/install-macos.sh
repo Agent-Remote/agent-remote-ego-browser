@@ -8,6 +8,7 @@ manifest_sigstore_bundle=""
 archive_sigstore_bundle=""
 expected_certificate_sha256=""
 ego_browser_path=""
+release_repository="${EGO_BROWSER_RELEASE_REPOSITORY:-Agent-Remote/agent-remote-ego-browser}"
 confirmed=0
 start_agents=1
 
@@ -20,6 +21,9 @@ Usage: install-macos.sh --archive FILE --archive-sigstore-bundle FILE \
 Options:
   --ego-browser PATH   Canonical local ego-browser runtime path.
   --no-start           Install launch agents without bootstrapping them.
+
+Environment:
+  EGO_BROWSER_RELEASE_REPOSITORY  GitHub OWNER/REPO used for the tag-bound Sigstore identity.
 
 This installs only the independent ego-browser Bridge and Device Client for the
 current macOS user. It never installs, changes, or removes ego lite itself.
@@ -51,6 +55,10 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 if [ "$confirmed" -ne 1 ]; then
   echo "--confirm-local-trust is required: this is project-self-signed, not Apple notarized, and grants full-trust local Node execution" >&2
+  exit 2
+fi
+if ! [[ "$release_repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+  echo "invalid release repository" >&2
   exit 2
 fi
 expected_certificate_sha256=$(printf '%s' "$expected_certificate_sha256" | tr '[:upper:]' '[:lower:]')
@@ -156,7 +164,7 @@ if ! command -v cosign >/dev/null 2>&1; then
   echo "cosign is required to authenticate the release manifest and archive" >&2
   exit 1
 fi
-release_identity="https://github.com/Agent-Remote/agent-remote-ego-browser/.github/workflows/release.yml@refs/tags/v${version}"
+release_identity="https://github.com/${release_repository}/.github/workflows/release.yml@refs/tags/v${version}"
 cosign verify-blob \
   --bundle "$manifest_sigstore_bundle" \
   --certificate-identity "$release_identity" \

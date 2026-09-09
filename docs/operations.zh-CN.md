@@ -13,6 +13,17 @@
 
 安装器不会安装、修改或删除 ego lite。
 
+## 一键安装
+
+如果希望一次完成依赖检查、ego lite（缺失时）和 Bridge 安装，可直接运行仓库提供的 bootstrap 脚本：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
+  bash -s -- --version 0.1.9 --confirm-local-trust
+```
+
+脚本会先校验 archive 和 manifest，再执行归档内安装器，并由安装器再次完整校验；不会跳过 archive、manifest、Sigstore、证书 pin 或运行时版本校验。首次 ego lite GUI onboarding 必须由当前 macOS 用户完成。若要在同一次运行中注册并绑定，请额外提供 `--server`、`--token`、`--session-id`、`--confirm-full-trust`；没有精确 session ID 时脚本只注册，不会自动 claim。
+
 ## 校验与安装
 
 ```sh

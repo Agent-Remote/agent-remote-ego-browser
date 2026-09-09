@@ -96,6 +96,36 @@ The installer verifies readiness claims, tag-bound Sigstore identities, artifact
 
 See [Installation and operations](docs/operations.md) for prerequisites, registration, policy setup, observability, recovery, and uninstall details.
 
+### One-command bootstrap
+
+From a terminal running as the logged-in macOS user, the bootstrap script performs dependency checks, installs ego lite when it is missing, verifies the signed release inputs, and installs the Bridge:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
+  bash -s -- --version 0.1.9 --confirm-local-trust
+```
+
+To also register the Device Client and claim one exact remote session in the same run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
+  bash -s -- \
+    --version 0.1.9 \
+    --server https://agent-remote.example.com \
+    --token USER_REGISTRATION_TOKEN \
+    --session-id EXACT_TOOL_SESSION_ID \
+    --confirm-local-trust \
+    --confirm-full-trust
+```
+
+The script installs a missing Homebrew `cosign`, authenticates the release archive and manifest before executing any packaged installer code, and verifies a pinned official ego lite installer. The first GUI onboarding must still be completed by the user; the script never guesses a candidate session. Use a short-lived registration token and do not put it in shell history or chat logs.
+
+The script embeds the current persistent project certificate pin. After a certificate rotation or when using a custom repository, pass `--certificate-sha256`. See the full option list with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | bash -s -- --help
+```
+
 ## Commands
 
 Register the independent Device Client and bind one exact running tool session:
