@@ -460,9 +460,25 @@ if rollback.index('for plist in "$device_plist" "$bridge_plist"') > rollback.ind
     raise SystemExit("rollback switches current before validating launch-agent definitions")
 PY
 
-forbidden='agent-remote-'device
-if rg -n "$forbidden" "$root" \
-  --glob '!target/**' --glob '!tests/release_scripts_test.sh' >/dev/null; then
-  echo "forbidden cross-product dependency or reference found" >&2
-  exit 1
-fi
+forbidden='agent-remote-device'
+python3 - "$root" "$forbidden" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+forbidden = sys.argv[2]
+for path in root.rglob("*"):
+    if (
+        not path.is_file()
+        or "target" in path.parts
+        or ".git" in path.parts
+        or path == root / "tests/release_scripts_test.sh"
+    ):
+        continue
+    try:
+        content = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        continue
+    if forbidden in content:
+        raise SystemExit(f"forbidden cross-product dependency or reference found: {path}")
+PY
