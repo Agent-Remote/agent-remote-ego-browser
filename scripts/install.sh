@@ -409,9 +409,12 @@ PY
 probe_runtime_version() {
   local path="$1"
   local raw
+  # ego lite writes its non-interactive version response to stderr.  Capture
+  # both streams, while still requiring a successful command and an exact
+  # parseable response below.
   raw=$(env -i HOME="$HOME" \
     PATH="$(dirname "$path"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin" \
-    "$path" --version 2>/dev/null) || return 1
+    "$path" --version 2>&1) || return 1
   printf '%s' "$raw" | python3 -c '
 import json
 import re

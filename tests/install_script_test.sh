@@ -72,9 +72,9 @@ printf '%s\n' '#!/bin/sh' \
   >"$work/package/installer/install-macos.sh"
 chmod 0755 "$work/package/installer/install-macos.sh"
 printf '%s\n' '#!/bin/sh' \
-  'printf "ego-browser 0.4.7.4\\n"' \
-  'printf "  chromium 150\\n"' \
-  'printf "  node v24\\n"' >"$work/runtime"
+  'printf "ego-browser 0.4.7.4\\n" >&2' \
+  'printf "  chromium 150\\n" >&2' \
+  'printf "  node v24\\n" >&2' >"$work/runtime"
 chmod 0755 "$work/runtime"
 printf '%s\n' '#!/bin/sh' 'printf "Darwin\\n"' >"$work/fake-bin/uname"
 printf '%s\n' '#!/bin/sh' 'printf "501\\n"' >"$work/fake-bin/id"
