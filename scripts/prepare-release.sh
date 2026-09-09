@@ -9,6 +9,7 @@ import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -100,6 +101,45 @@ def reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]
     return result
 
 
+def generated_release_notes() -> str:
+    previous_tag = ""
+    try:
+        tags = subprocess.run(
+            ["git", "tag", "--list", "v[0-9]*", "--sort=-v:refname"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        previous_tag = next(
+            (tag for tag in tags if tag != f"v{version}"),
+            "",
+        )
+        revision = f"{previous_tag}..HEAD" if previous_tag else "HEAD"
+        notes = subprocess.run(
+            [
+                "git",
+                "log",
+                "--no-merges",
+                "--pretty=format:- %s (%h)",
+                revision,
+            ],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        notes = ""
+    if notes:
+        return notes
+    baseline = previous_tag or "the initial source"
+    return (
+        f"- release: prepare {version} from {baseline} with repository-owned "
+        "version metadata only."
+    )
+
+
 version_path, version_source = read_source("VERSION")
 current_version = version_source.strip()
 parse_semver(current_version)
@@ -168,7 +208,16 @@ marker = "## Unreleased\n"
 if changelog.count(marker) != 1:
     raise SystemExit("changelog must contain exactly one Unreleased section")
 heading = f"## {version} - {datetime.date.today().isoformat()}"
-updates[changelog_path] = changelog.replace(marker, marker + "\n" + heading + "\n", 1)
+unreleased = re.search(r"(?ms)^## Unreleased\n(?P<body>.*?)(?=^## |\Z)", changelog)
+if unreleased is None:
+    raise SystemExit("changelog Unreleased section is malformed")
+notes = unreleased.group("body").strip() or generated_release_notes()
+release_section = f"## Unreleased\n\n{heading}\n\n{notes}\n\n"
+updates[changelog_path] = (
+    changelog[: unreleased.start()]
+    + release_section
+    + changelog[unreleased.end() :]
+)
 updates[version_path] = version + "\n"
 
 for path, content in updates.items():

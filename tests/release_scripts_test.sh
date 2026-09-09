@@ -205,6 +205,14 @@ assert after_vector["capability"]["local_ego_browser_runtime_version"] == before
 
 changelog = (after / "CHANGELOG.md").read_text()
 assert len(re.findall(rf"(?m)^## {re.escape(new)} - [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$", changelog)) == 1
+release_section = re.search(
+    rf"(?ms)^## {re.escape(new)} - [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}\n\n"
+    r"(?P<body>.*?)(?=^## |\Z)",
+    changelog,
+)
+assert release_section is not None
+assert release_section.group("body").strip()
+assert "repository-owned version metadata only" in release_section.group("body")
 for relative in invariants:
     assert (after / relative).read_bytes() == (before / relative).read_bytes(), relative
 PY

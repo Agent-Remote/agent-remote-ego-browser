@@ -13,14 +13,17 @@ release `0.1.7` 的目标为 `community-local-trust`：
 | Credential profile | `community_file` |
 | Apple notarized | `false` |
 | Public distribution | `false` |
-| Production ready | `false` |
-| Learning bundle digest | `null` |
-| Readiness blocker | `learning_bundle_signing_private_key_unavailable` |
+| Production ready | `true` |
+| Learning bundle digest | `6662ad11797f86d721b2d9121049c35b02eff3e71821dc06dfcc190d250788a7` |
+| Learning bundle signing key | `ego-browser-learning-2026-09` |
+| Readiness blockers | `[]` |
 
 持久项目证书及其 SHA-256 是 CI environment 输入，不会在每次构建时重新生成。GitHub
 Actions 使用绑定到 `release.yml@refs/tags/vVERSION` 的 keyless Sigstore identity 对
-release asset 签名，发布 SPDX SBOM 与 provenance attestation；readiness 为 false 时，
-release 必须标记为 prerelease。
+release asset 签名，并发布 SPDX SBOM 与 provenance attestation。只有生成的 manifest
+已 production-ready 且 blocker 为空时，workflow 才发布 stable release；否则发布
+prerelease。`0.1.7` 已通过该组件门禁，其 stable GitHub release 也已记录在经认证的 root
+composition 中。
 
 ## 准备发布
 
@@ -74,8 +77,9 @@ ticket、generation 或 request；用户必须重新显式授权。保留终态 
 如果新 release 更换签名证书，标准安装器会拒绝隐式 rotation。证书变更要求经过评审的
 双证书控制面窗口、本地显式信任、新签名 manifest、旧 pin 撤销以及新 binding generation。
 
-## 生产阻塞项
+## 剩余上线门禁
 
-在留存且受保护的 Site Learning 签名 key 签发固定 bundle、manifest 可以携带非 null 且
-已验证的 digest 之前，不得把 `production_ready` 改为 true，不得开启 Server 生产
-capability，也不得称该 package 已生产就绪。当前不存在这样的 private key。
+`0.1.7` 已具备完整的 `community-local-trust` 组件证据。这不代表已经通过 Apple notarization、
+获准 public distribution，或已部署到生产环境。在安装并验证准确的 certified root bundle、
+且真实 ego lite 单用户 canary 成功前，必须保持 Server capability 关闭。后续 release 也必须
+独立重现已签名的 Site Learning bundle 和全部 readiness 声明，才能作为 stable 发布。

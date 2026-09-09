@@ -17,9 +17,10 @@
 
 ## 发布状态
 
-`production_ready=false`，`release_published=false`。
+经认证的 root composition 已记录 Bridge `0.1.7`：`production_ready=true`、
+`release_published=true`，且 `readiness_blockers=[]`。
 
-仓库可以构建、测试、打包和复核，但 Server 的生产 capability 必须保持关闭。当前没有留存的 Site Learning 签名私钥，因此无法生成满足生产证据合同的 release-signed learning bundle。不得把当前组件描述为 production-ready，也不得作为 stable release 发布。
+该 stable GitHub release 已通过 `community-local-trust` 证据 profile，并包含由留存 key 签名的 Site Learning bundle；它仍为 `apple_notarized=false`、`public_distribution=false`。组件就绪不代表生产环境已经部署或完成 canary：在安装并验证准确的 root bundle、且真实 ego lite 单用户 canary 通过前，必须保持 `EGO_BROWSER_BRIDGE_ENABLED=false`。
 
 ## 安全警告
 
@@ -78,7 +79,7 @@ Node runtime broker -> Server opaque WebSocket relay
 
 ## 安装
 
-当前未发布 build 只用于开发和 release 复核。未来满足条件的 macOS release 必须同时提供 archive、严格 aggregate manifest、两个 Sigstore bundle，以及从独立可信渠道取得的 signing-certificate SHA-256：
+安装 stable `0.1.7` macOS release 时，必须同时使用 archive、严格 aggregate manifest、两个 Sigstore bundle，以及从独立可信渠道取得的 signing-certificate SHA-256：
 
 ```sh
 ./installer/install-macos.sh \
@@ -163,7 +164,7 @@ scripts/run-quality-checks.sh
 
 Prepare 脚本要求目标 semantic version 严格递增，并更新所有由本仓库负责的组件版本位置；协议、Skill、runtime、schema、依赖和 workflow action 的兼容版本保持不变。绑定 tag 的 workflow 会生成四个 Linux wrapper archive 和一个 macOS universal archive，并附带 checksum、Sigstore bundle、SPDX SBOM、provenance 和一个严格 aggregate manifest。
 
-在 `production_ready=false` 期间，当前 workflow 必须继续只发布 prerelease。证据 profile 与不可变 rollback 合同见[发布、升级与回滚](docs/release.zh-CN.md)。
+只有生成的 manifest 为 `production_ready=true` 且无 readiness blocker 时，workflow 才发布 stable release；否则发布 prerelease。`0.1.7` 已按 `community-local-trust` profile 通过组件门禁。剩余部署/canary 门禁与不可变 rollback 合同见[发布、升级与回滚](docs/release.zh-CN.md)。
 
 ## 文档
 

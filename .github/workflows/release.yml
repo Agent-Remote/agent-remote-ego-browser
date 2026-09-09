@@ -222,18 +222,22 @@ jobs:
                .learning_bundle_digest == $digest and
                .learning_bundle_signing_key_id == $key' \
               "$signing" >/dev/null
-            echo "learning-bundle-digest=$digest" >> "$GITHUB_OUTPUT"
-            echo "learning-bundle-key-id=$key_id" >> "$GITHUB_OUTPUT"
-            echo "production-ready=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "learning-bundle-digest=$digest"
+              echo "learning-bundle-key-id=$key_id"
+              echo "production-ready=true"
+            } >> "$GITHUB_OUTPUT"
           else
             jq -e '.production_ready == false and
               .signer_certificate_sha256 == env.CERTIFICATE_SHA256 and
               .learning_bundle_digest == null and
               (.readiness_blockers | index("learning_bundle_signing_private_key_unavailable")) != null' \
               "$signing" >/dev/null
-            echo "learning-bundle-digest=" >> "$GITHUB_OUTPUT"
-            echo "learning-bundle-key-id=$key_id" >> "$GITHUB_OUTPUT"
-            echo "production-ready=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "learning-bundle-digest="
+              echo "learning-bundle-key-id=$key_id"
+              echo "production-ready=false"
+            } >> "$GITHUB_OUTPUT"
           fi
       - name: Generate macOS component SBOM
         uses: anchore/sbom-action@v0

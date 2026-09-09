@@ -13,15 +13,19 @@ Release `0.1.7` targets `community-local-trust`:
 | Credential profile | `community_file` |
 | Apple notarized | `false` |
 | Public distribution | `false` |
-| Production ready | `false` |
-| Learning bundle digest | `null` |
-| Readiness blocker | `learning_bundle_signing_private_key_unavailable` |
+| Production ready | `true` |
+| Learning bundle digest | `6662ad11797f86d721b2d9121049c35b02eff3e71821dc06dfcc190d250788a7` |
+| Learning bundle signing key | `ego-browser-learning-2026-09` |
+| Readiness blockers | `[]` |
 
 The persistent project certificate and its SHA-256 are CI environment inputs;
 they are not generated per build. GitHub Actions signs release assets with
 keyless Sigstore identity tied to `release.yml@refs/tags/vVERSION`, publishes
-SPDX SBOMs and provenance attestations, and publishes this release as a
-prerelease while readiness is false.
+SPDX SBOMs and provenance attestations. The workflow publishes a stable release
+only when the generated manifest is production-ready with no blockers;
+otherwise it publishes a prerelease. Release `0.1.7` passed this component gate
+and its stable GitHub release is recorded as published by the certified root
+composition.
 
 ## Preparing a release
 
@@ -87,9 +91,12 @@ dual-certificate control-plane window, explicit local trust confirmation, a
 new signed manifest, revocation of the retired pin, and a new binding
 generation.
 
-## Production blocker
+## Remaining rollout gates
 
-Do not set `production_ready=true`, enable the Server production capability, or
-describe the package as production-ready until a retained, protected Site
-Learning signing key has issued the pinned bundle and the manifest can carry a
-non-null verified digest. No such private key currently exists.
+Release `0.1.7` has complete `community-local-trust` component evidence. That
+does not imply Apple notarization, public-distribution approval, or deployment
+to a production environment. Keep the Server capability disabled until the
+exact certified root bundle is installed and verified and the real ego lite
+single-user canary succeeds. Future releases must independently reproduce the
+signed Site Learning bundle and every readiness claim before being published as
+stable.

@@ -17,9 +17,10 @@ The official remote `ego-browser` Skill keeps its normal heredoc interface. Its 
 
 ## Release Status
 
-`production_ready=false` and `release_published=false`.
+The certified root composition records Bridge `0.1.7` with
+`production_ready=true`, `release_published=true`, and `readiness_blockers=[]`.
 
-The repository can be built, tested, packaged, and inspected, but the Server production capability must remain disabled. There is no retained Site Learning signing private key, so no release-signed learning bundle can currently satisfy the production evidence contract. Do not describe the current component as production-ready or publish it as a stable release.
+The stable GitHub release satisfies the `community-local-trust` evidence profile with a retained, release-signed Site Learning bundle. It remains `apple_notarized=false` and `public_distribution=false`. Component readiness does not mean that a production environment has deployed or canaried it: keep `EGO_BROWSER_BRIDGE_ENABLED=false` until the exact certified root bundle is installed and verified and the real ego lite single-user canary passes.
 
 ## Security Warning
 
@@ -78,7 +79,7 @@ Compatibility is exact. Unknown, partial, or stale capabilities fail closed; the
 
 ## Install
 
-The current unpublished build is for development and release inspection only. A future eligible macOS release is installed from its archive, strict aggregate manifest, both Sigstore bundles, and an independently obtained signing-certificate SHA-256:
+Install the stable `0.1.7` macOS release from its archive, strict aggregate manifest, both Sigstore bundles, and an independently obtained signing-certificate SHA-256:
 
 ```sh
 ./installer/install-macos.sh \
@@ -163,7 +164,7 @@ scripts/run-quality-checks.sh
 
 The preparation script requires a strictly newer semantic version and updates every repository-owned component-version location while leaving protocol, Skill, runtime, schema, dependency, and workflow-action compatibility versions unchanged. Tag-bound workflows produce four Linux wrapper archives and one universal macOS archive with checksums, Sigstore bundles, SPDX SBOMs, provenance, and one strict aggregate manifest.
 
-The current workflow must continue to publish only a prerelease while `production_ready=false`. See [Release, upgrade, and rollback](docs/release.md) for the evidence profile and immutable rollback contract.
+The workflow publishes a stable release only when its generated manifest has `production_ready=true` with no readiness blockers; otherwise it publishes a prerelease. Release `0.1.7` passed that component gate under the `community-local-trust` profile. See [Release, upgrade, and rollback](docs/release.md) for the remaining deployment/canary gates and immutable rollback contract.
 
 ## Documentation
 
