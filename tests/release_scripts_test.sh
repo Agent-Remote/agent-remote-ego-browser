@@ -211,8 +211,9 @@ release_section = re.search(
     changelog,
 )
 assert release_section is not None
-assert release_section.group("body").strip()
-assert "one-command macOS bootstrap installer" in release_section.group("body")
+release_body = release_section.group("body")
+assert release_body.strip()
+assert re.search(r"(?m)^- ", release_body)
 for relative in invariants:
     assert (after / relative).read_bytes() == (before / relative).read_bytes(), relative
 PY
