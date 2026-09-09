@@ -8,6 +8,8 @@ All notable changes to this repository are recorded here.
   the verified Bridge, with optional registration and explicit session claim.
 - harden(install): authenticate release inputs before executing the packaged
   installer and snapshot caller-supplied files in a private temporary directory.
+- fix(install): accept ego lite's non-interactive version response on stderr in
+  the packaged macOS installer.
 - test: cover bootstrap argument, trust, archive, and runtime contracts.
 
 ## 0.1.9 - 2026-09-09

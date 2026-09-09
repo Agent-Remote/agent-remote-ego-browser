@@ -385,9 +385,9 @@ PY
 printf '#!/bin/sh\nexit 0\n' >"$probe_bin/cosign"
 printf '%s\n' '#!/bin/sh' \
   'if [ "${1:-}" = "--version" ]; then' \
-  '  printf "%s\n" "ego-browser 0.4.7.4"' \
-  '  printf "%s\n" "  chromium 150.0.7871.101"' \
-  '  printf "%s\n" "  node v24.18.0"' \
+  '  printf "%s\n" "ego-browser 0.4.7.4" >&2' \
+  '  printf "%s\n" "  chromium 150.0.7871.101" >&2' \
+  '  printf "%s\n" "  node v24.18.0" >&2' \
   '  exit 0' \
   'fi' \
   'exit 64' >"$probe_runtime"

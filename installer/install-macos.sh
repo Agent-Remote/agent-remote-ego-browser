@@ -259,7 +259,9 @@ print(resolved)
 PY
 )
 runtime_version=$(
-  env -i HOME="$HOME" PATH="/usr/bin:/bin" "$ego_browser_path" --version \
+  # ego lite writes its non-interactive version response to stderr.  Merge both
+  # streams before parsing so the packaged installer behaves like the bootstrap.
+  env -i HOME="$HOME" PATH="/usr/bin:/bin" "$ego_browser_path" --version 2>&1 \
     | python3 -c '
 import json
 import re
