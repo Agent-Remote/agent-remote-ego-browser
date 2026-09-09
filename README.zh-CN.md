@@ -17,7 +17,7 @@
 
 ## 发布状态
 
-stable Bridge `0.1.10` release 已记录 `production_ready=true`、
+stable Bridge `0.1.11` release 已记录 `production_ready=true`、
 `release_published=true`，且 `readiness_blockers=[]`。root composition 会独立固定其已认证的
 准确 Bridge release。
 
@@ -68,7 +68,7 @@ Node runtime broker -> Server opaque WebSocket relay
 
 | 范围 | 要求 |
 | --- | --- |
-| Bridge、Device Client、远端 wrapper | `0.1.10` |
+| Bridge、Device Client、远端 wrapper | `0.1.11` |
 | 协议 | `ego-browser-bridge-v1` |
 | 官方 Skill | `1.2.3` |
 | 本地 `ego-browser` runtime | `0.4.7.4` |
@@ -80,14 +80,14 @@ Node runtime broker -> Server opaque WebSocket relay
 
 ## 安装
 
-安装 stable `0.1.10` macOS release 时，必须同时使用 archive、严格 aggregate manifest、两个 Sigstore bundle，以及从独立可信渠道取得的 signing-certificate SHA-256：
+安装 stable `0.1.11` macOS release 时，必须同时使用 archive、严格 aggregate manifest、两个 Sigstore bundle，以及从独立可信渠道取得的 signing-certificate SHA-256：
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.10.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.10.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.10.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.10.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.11.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.11.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.11.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.11.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```
@@ -102,7 +102,7 @@ Node runtime broker -> Server opaque WebSocket relay
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.10 --confirm-local-trust
+  bash -s -- --version 0.1.11 --confirm-local-trust
 ```
 
 如果还要在安装后注册并绑定一个明确的远端 session：
@@ -110,7 +110,7 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
   bash -s -- \
-    --version 0.1.10 \
+    --version 0.1.11 \
     --server https://agent-remote.example.com \
     --token USER_REGISTRATION_TOKEN \
     --session-id EXACT_TOOL_SESSION_ID \
@@ -122,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.10 --confirm-local-trust
+  bash -s -- --version 0.1.11 --confirm-local-trust
 ```
 
 需要同时 claim 明确 session 时，再加 `--session-id EXACT_TOOL_SESSION_ID --confirm-full-trust`。脚本会自动安装缺失的 Homebrew `cosign`，先校验 release archive 和 manifest 后才执行归档内安装器，并校验固定版本的官方 ego lite 安装脚本。首次运行仍需在 ego lite GUI 中完成 onboarding；脚本不会自动猜选候选 session。若检测到旧版 CLI 或 Device Client，则回退到显式 `--server`/`--token` 流程。手动 token 应使用短期凭据，且不要提交到 shell 历史或聊天记录。
@@ -211,7 +211,7 @@ scripts/run-quality-checks.sh
 
 Prepare 脚本要求目标 semantic version 严格递增，并更新所有由本仓库负责的组件版本位置；协议、Skill、runtime、schema、依赖和 workflow action 的兼容版本保持不变。绑定 tag 的 workflow 会生成四个 Linux wrapper archive 和一个 macOS universal archive，并附带 checksum、Sigstore bundle、SPDX SBOM、provenance 和一个严格 aggregate manifest。
 
-只有生成的 manifest 为 `production_ready=true` 且无 readiness blocker 时，workflow 才发布 stable release；否则发布 prerelease。`0.1.10` 已按 `community-local-trust` profile 通过组件门禁。剩余部署/canary 门禁与不可变 rollback 合同见[发布、升级与回滚](docs/release.zh-CN.md)。
+只有生成的 manifest 为 `production_ready=true` 且无 readiness blocker 时，workflow 才发布 stable release；否则发布 prerelease。`0.1.11` 已按 `community-local-trust` profile 通过组件门禁。剩余部署/canary 门禁与不可变 rollback 合同见[发布、升级与回滚](docs/release.zh-CN.md)。
 
 ## 文档
 

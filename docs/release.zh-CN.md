@@ -2,7 +2,7 @@
 
 ## 证据 profile
 
-release `0.1.10` 的目标为 `community-local-trust`：
+release `0.1.11` 的目标为 `community-local-trust`：
 
 | 声明 | 必须值 |
 | --- | --- |
@@ -22,7 +22,7 @@ release `0.1.10` 的目标为 `community-local-trust`：
 Actions 使用绑定到 `release.yml@refs/tags/vVERSION` 的 keyless Sigstore identity 对
 release asset 签名，并发布 SPDX SBOM 与 provenance attestation。只有生成的 manifest
 已 production-ready 且 blocker 为空时，workflow 才发布 stable release；否则发布
-prerelease。`0.1.10` 已通过该组件门禁，其 stable GitHub release 已发布。root composition
+prerelease。`0.1.11` 已通过该组件门禁，其 stable GitHub release 已发布。root composition
 会独立固定其已认证的准确 Bridge release 与证据。
 
 ## 准备发布
@@ -55,7 +55,7 @@ manifest 固定其准确文件名、大小、digest、版本、平台、release 
 8. 再次确认 full trust，创建新 generation，运行 `--doctor` 和单用户 canary；不重放旧
    permit 或 request。
 
-兼容版本是准确约束：wrapper/Bridge/Device Client `0.1.10`、协议
+兼容版本是准确约束：wrapper/Bridge/Device Client `0.1.11`、协议
 `ego-browser-bridge-v1`、Skill `1.2.3`、本地 runtime `0.4.7.4`。未知或不完整 capability
 均 fail closed，且不存在浏览器或 transport fallback。
 
@@ -79,7 +79,7 @@ ticket、generation 或 request；用户必须重新显式授权。保留终态 
 
 ## 剩余上线门禁
 
-`0.1.10` 已具备完整的 `community-local-trust` 组件证据。这不代表已经通过 Apple notarization、
+`0.1.11` 已具备完整的 `community-local-trust` 组件证据。这不代表已经通过 Apple notarization、
 获准 public distribution，或已部署到生产环境。在安装并验证准确的 certified root bundle、
 且真实 ego lite 单用户 canary 成功前，必须保持 Server capability 关闭。后续 release 也必须
 独立重现已签名的 Site Learning bundle 和全部 readiness 声明，才能作为 stable 发布。

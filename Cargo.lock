@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "ego-browser-bridge"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "ego-browser-bridge-protocol",
  "ego-browser-device",
@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "ego-browser-bridge-protocol"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "base64",
  "chacha20poly1305",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "ego-browser-device"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "base64",
  "ed25519-dalek",
@@ -381,7 +381,7 @@ dependencies = [
 
 [[package]]
 name = "ego-browser-remote"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "base64",
  "ego-browser-bridge-protocol",
