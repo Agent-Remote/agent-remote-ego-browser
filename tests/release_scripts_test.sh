@@ -460,7 +460,7 @@ if rollback.index('for plist in "$device_plist" "$bridge_plist"') > rollback.ind
     raise SystemExit("rollback switches current before validating launch-agent definitions")
 PY
 
-forbidden='agent-remote-device'
+forbidden="agent-remote-"'device'
 python3 - "$root" "$forbidden" <<'PY'
 import sys
 from pathlib import Path
