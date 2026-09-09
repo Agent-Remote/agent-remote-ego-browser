@@ -4,6 +4,10 @@ All notable changes to this repository are recorded here.
 
 ## Unreleased
 
+## 0.1.9 - 2026-09-09
+
+- release: prepare 0.1.9 from v0.1.8 with repository-owned version metadata only.
+
 ## 0.1.8 - 2026-09-09
 
 - docs(release): decouple component and root certification (c9523cf)
