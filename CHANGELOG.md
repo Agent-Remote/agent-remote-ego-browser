@@ -4,6 +4,11 @@ All notable changes to this repository are recorded here.
 
 ## Unreleased
 
+## 0.1.8 - 2026-09-09
+
+- docs(release): decouple component and root certification (c9523cf)
+- fix(release): align readiness and changelog metadata (567d4ec)
+
 ## 0.1.7 - 2026-09-08
 
 - ci: commit every source updated by release preparation (9128ae3)
