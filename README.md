@@ -17,7 +17,7 @@ The official remote `ego-browser` Skill keeps its normal heredoc interface. Its 
 
 ## Release Status
 
-The stable Bridge `0.1.9` release records `production_ready=true`,
+The stable Bridge `0.1.10` release records `production_ready=true`,
 `release_published=true`, and `readiness_blockers=[]`. Root compositions
 independently pin the exact Bridge release they have certified.
 
@@ -68,7 +68,7 @@ Each request uses an X25519-wrapped ChaCha20-Poly1305 session key. Routing ident
 
 | Surface | Required value |
 | --- | --- |
-| Bridge, Device Client, remote wrapper | `0.1.9` |
+| Bridge, Device Client, remote wrapper | `0.1.10` |
 | Protocol | `ego-browser-bridge-v1` |
 | Official Skill | `1.2.3` |
 | Local `ego-browser` runtime | `0.4.7.4` |
@@ -80,14 +80,14 @@ Compatibility is exact. Unknown, partial, or stale capabilities fail closed; the
 
 ## Install
 
-Install the stable `0.1.9` macOS release from its archive, strict aggregate manifest, both Sigstore bundles, and an independently obtained signing-certificate SHA-256:
+Install the stable `0.1.10` macOS release from its archive, strict aggregate manifest, both Sigstore bundles, and an independently obtained signing-certificate SHA-256:
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.9.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.9.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.9.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.9.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.10.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.10.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.10.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.10.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```
@@ -102,7 +102,7 @@ From a terminal running as the logged-in macOS user, the bootstrap script perfor
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.9 --confirm-local-trust
+  bash -s -- --version 0.1.10 --confirm-local-trust
 ```
 
 To also register the Device Client and claim one exact remote session in the same run:
@@ -110,7 +110,7 @@ To also register the Device Client and claim one exact remote session in the sam
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
   bash -s -- \
-    --version 0.1.9 \
+    --version 0.1.10 \
     --server https://agent-remote.example.com \
     --token USER_REGISTRATION_TOKEN \
     --session-id EXACT_TOOL_SESSION_ID \
@@ -195,7 +195,7 @@ scripts/run-quality-checks.sh
 
 The preparation script requires a strictly newer semantic version and updates every repository-owned component-version location while leaving protocol, Skill, runtime, schema, dependency, and workflow-action compatibility versions unchanged. Tag-bound workflows produce four Linux wrapper archives and one universal macOS archive with checksums, Sigstore bundles, SPDX SBOMs, provenance, and one strict aggregate manifest.
 
-The workflow publishes a stable release only when its generated manifest has `production_ready=true` with no readiness blockers; otherwise it publishes a prerelease. Release `0.1.9` passed that component gate under the `community-local-trust` profile. See [Release, upgrade, and rollback](docs/release.md) for the remaining deployment/canary gates and immutable rollback contract.
+The workflow publishes a stable release only when its generated manifest has `production_ready=true` with no readiness blockers; otherwise it publishes a prerelease. Release `0.1.10` passed that component gate under the `community-local-trust` profile. See [Release, upgrade, and rollback](docs/release.md) for the remaining deployment/canary gates and immutable rollback contract.
 
 ## Documentation
 

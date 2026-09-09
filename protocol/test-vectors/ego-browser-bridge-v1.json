@@ -103,7 +103,7 @@
   ],
   "capability": {
     "bridge_protocol_version": "ego-browser-bridge-v1",
-    "remote_wrapper_version": "0.1.9",
+    "remote_wrapper_version": "0.1.10",
     "local_ego_browser_runtime_version": "0.4.7.4",
     "ego_lite_runtime_version": "0.4.7.4",
     "skill_version": "1.2.3",

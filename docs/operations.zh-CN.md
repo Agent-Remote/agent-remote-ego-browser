@@ -19,7 +19,7 @@
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.9 --confirm-local-trust
+  bash -s -- --version 0.1.10 --confirm-local-trust
 ```
 
 脚本会先校验 archive 和 manifest，再执行归档内安装器，并由安装器再次完整校验；不会跳过 archive、manifest、Sigstore、证书 pin 或运行时版本校验。首次 ego lite GUI onboarding 必须由当前 macOS 用户完成。若要在同一次运行中注册并绑定，请额外提供 `--server`、`--token`、`--session-id`、`--confirm-full-trust`；没有精确 session ID 时脚本只注册，不会自动 claim。
@@ -28,10 +28,10 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.9.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.9.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.9.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.9.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.10.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.10.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.10.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.10.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```

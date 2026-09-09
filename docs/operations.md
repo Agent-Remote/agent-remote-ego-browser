@@ -19,7 +19,7 @@ To perform dependency checks, install ego lite when it is missing, and install t
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.9 --confirm-local-trust
+  bash -s -- --version 0.1.10 --confirm-local-trust
 ```
 
 The bootstrap script authenticates the archive and manifest before executing the packaged installer, then invokes that signed installer again; it does not bypass archive, manifest, Sigstore, certificate-pin, or runtime-version checks. The logged-in macOS user must complete the first ego lite GUI onboarding. Add `--server`, `--token`, `--session-id`, and `--confirm-full-trust` to register and claim one exact session in the same run; without an exact session ID the script registers only and never guesses a claim.
@@ -28,10 +28,10 @@ The bootstrap script authenticates the archive and manifest before executing the
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.9.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.9.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.9.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.9.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.10.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.10.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.10.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.10.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```

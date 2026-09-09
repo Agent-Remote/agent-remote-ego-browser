@@ -2,7 +2,7 @@
 
 ## Evidence profile
 
-Release `0.1.9` targets `community-local-trust`:
+Release `0.1.10` targets `community-local-trust`:
 
 | Claim | Required value |
 | --- | --- |
@@ -23,7 +23,7 @@ they are not generated per build. GitHub Actions signs release assets with
 keyless Sigstore identity tied to `release.yml@refs/tags/vVERSION`, publishes
 SPDX SBOMs and provenance attestations. The workflow publishes a stable release
 only when the generated manifest is production-ready with no blockers;
-otherwise it publishes a prerelease. Release `0.1.9` passed this component gate
+otherwise it publishes a prerelease. Release `0.1.10` passed this component gate
 and its stable GitHub release is published. Root compositions independently pin
 the exact Bridge release and evidence they have certified.
 
@@ -63,7 +63,7 @@ sizes, digests, versions, platforms, release claims, and signing certificate.
 8. Reconfirm full trust, create a fresh generation, and run `--doctor` plus a
    single-user canary. Old permits and requests are never replayed.
 
-Compatibility is exact: wrapper/Bridge/Device Client `0.1.9`, protocol
+Compatibility is exact: wrapper/Bridge/Device Client `0.1.10`, protocol
 `ego-browser-bridge-v1`, Skill `1.2.3`, and local runtime `0.4.7.4`. Unknown or
 partial capabilities fail closed. There is no browser or transport fallback.
 
@@ -93,7 +93,7 @@ generation.
 
 ## Remaining rollout gates
 
-Release `0.1.9` has complete `community-local-trust` component evidence. That
+Release `0.1.10` has complete `community-local-trust` component evidence. That
 does not imply Apple notarization, public-distribution approval, or deployment
 to a production environment. Keep the Server capability disabled until the
 exact certified root bundle is installed and verified and the real ego lite
