@@ -31,6 +31,43 @@ pub fn parse_runtime_probe(bytes: &[u8]) -> Result<RuntimeProbe, ProtocolError> 
     })
 }
 
+/// Parse a runtime version response when the executable chooses either output
+/// stream for its non-interactive response.
+///
+/// The official ego lite runtime currently writes `--version` to stderr. A
+/// few wrappers write to stdout instead, and test/runtime shims can split the
+/// response across both streams. Keep the stream handling in one place so all
+/// callers enforce the same strict three-line contract.
+pub fn parse_runtime_probe_output(
+    stdout: &[u8],
+    stderr: &[u8],
+) -> Result<RuntimeProbe, ProtocolError> {
+    for candidate in [stdout, stderr] {
+        if let Ok(probe) = parse_runtime_probe(candidate) {
+            return Ok(probe);
+        }
+    }
+
+    let combined_len = stdout.len().saturating_add(stderr.len());
+    if combined_len <= MAX_PROBE_BYTES {
+        let mut combined = Vec::with_capacity(combined_len);
+        combined.extend_from_slice(stdout);
+        combined.extend_from_slice(stderr);
+        if let Ok(probe) = parse_runtime_probe(&combined) {
+            return Ok(probe);
+        }
+
+        combined.clear();
+        combined.extend_from_slice(stderr);
+        combined.extend_from_slice(stdout);
+        if let Ok(probe) = parse_runtime_probe(&combined) {
+            return Ok(probe);
+        }
+    }
+
+    Err(ProtocolError::InvalidInner("runtime probe streams"))
+}
+
 fn parse_version_line(line: &str, prefix: &str) -> Result<String, ProtocolError> {
     let value = line
         .strip_prefix(prefix)

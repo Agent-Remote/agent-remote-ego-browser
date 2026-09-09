@@ -118,7 +118,14 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
     --confirm-full-trust
 ```
 
-脚本会自动安装缺失的 Homebrew `cosign`，先校验 release archive 和 manifest 后才执行归档内安装器，并校验固定版本的官方 ego lite 安装脚本。首次运行仍需在 ego lite GUI 中完成 onboarding；脚本不会自动猜选候选 session。`--token` 应使用短期 registration token，且不要提交到 shell 历史或聊天记录。
+如果 `agent-remote` CLI 已经登录，bootstrap 会自动发现它并调用 `agent-remote ego-browser register`，复用已配置的服务器和凭据，token 只通过 stdin 传递。此时可以省略 `--server` 和 `--token`：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
+  bash -s -- --version 0.1.10 --confirm-local-trust
+```
+
+需要同时 claim 明确 session 时，再加 `--session-id EXACT_TOOL_SESSION_ID --confirm-full-trust`。脚本会自动安装缺失的 Homebrew `cosign`，先校验 release archive 和 manifest 后才执行归档内安装器，并校验固定版本的官方 ego lite 安装脚本。首次运行仍需在 ego lite GUI 中完成 onboarding；脚本不会自动猜选候选 session。若检测到旧版 CLI 或 Device Client，则回退到显式 `--server`/`--token` 流程。手动 token 应使用短期凭据，且不要提交到 shell 历史或聊天记录。
 
 脚本内置当前持久项目证书 pin。证书轮换或使用自定义仓库时，需额外传入 `--certificate-sha256`。完整选项见：
 
@@ -140,6 +147,15 @@ ego-browser-device candidates
 ego-browser-device claim EXACT_TOOL_SESSION_ID --confirm
 ego-browser-device status BINDING_ID
 ```
+
+完成 `agent-remote login` 后，也可以复用 CLI 凭据存储完成注册：
+
+```sh
+agent-remote ego-browser register \
+  --signer-certificate-sha256 EXPECTED_64_HEX_DIGEST
+```
+
+CLI 会校验可选的 `--server-url` 必须与已配置服务器一致，并通过 stdin 将保存的 token 传给 Device Client。没有该命令的旧版本继续使用上面的手动注册流程。
 
 在该远端 session 中继续使用普通 wrapper 接口：
 

@@ -24,7 +24,8 @@ mod credential_store;
 mod identity;
 
 const MAX_CREDENTIAL_BYTES: u64 = 64 * 1024;
-const TOKEN_MAX_BYTES: usize = 4096;
+/// Maximum size accepted for a user registration credential.
+pub const TOKEN_MAX_BYTES: usize = 4096;
 const MAX_ALLOWLIST_ROOTS: usize = 128;
 const CONTROL_API_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTROL_API_TIMEOUT: Duration = Duration::from_secs(15);

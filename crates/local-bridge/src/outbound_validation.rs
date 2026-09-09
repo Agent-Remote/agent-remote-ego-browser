@@ -26,13 +26,13 @@ pub(super) async fn probe_local_runtime(
             .arg("--version")
             .env_clear()
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
             .output(),
     )
     .await;
     match result {
         Ok(Ok(output)) if output.status.success() => {
-            parse_runtime_probe(&output.stdout).map_err(|_| {
+            parse_runtime_probe_output(&output.stdout, &output.stderr).map_err(|_| {
                 BridgeError::ProtocolMessage("ego-browser runtime probe is malformed".into())
             })
         }

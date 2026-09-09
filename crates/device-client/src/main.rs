@@ -7,12 +7,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use ego_browser_bridge_protocol::{
-    parse_runtime_probe, RuntimeProbe, PROTOCOL_VERSION, SUPPORTED_LOCAL_RUNTIME_VERSION,
+    parse_runtime_probe_output, RuntimeProbe, PROTOCOL_VERSION, SUPPORTED_LOCAL_RUNTIME_VERSION,
     SUPPORTED_SKILL_VERSION,
 };
 use ego_browser_device::{
     canonical_server_url, ActiveBinding, CommunityCredential, CredentialError, CredentialStore,
-    DeviceApiClient, DeviceIdentity, VerifiedLocalPolicy, FULL_TRUST_WARNING,
+    DeviceApiClient, DeviceIdentity, VerifiedLocalPolicy, FULL_TRUST_WARNING, TOKEN_MAX_BYTES,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
@@ -163,7 +163,7 @@ fn probe_runtime() -> Result<RuntimeProbe, Box<dyn std::error::Error>> {
     if !output.status.success() {
         return Err("ego-browser runtime probe failed".into());
     }
-    let probe = parse_runtime_probe(&output.stdout)
+    let probe = parse_runtime_probe_output(&output.stdout, &output.stderr)
         .map_err(|_| "ego-browser runtime probe is malformed")?;
     if probe.ego_browser_version != SUPPORTED_LOCAL_RUNTIME_VERSION {
         return Err("EGO_BROWSER_VERSION_MISMATCH: unsupported local ego-browser runtime".into());
@@ -173,7 +173,7 @@ fn probe_runtime() -> Result<RuntimeProbe, Box<dyn std::error::Error>> {
 
 fn print_help() {
     println!("ego-browser-device independent device client");
-    println!("Usage: ego-browser-device register --server https://... --token TOKEN --signer-certificate-sha256 HEX");
+    println!("Usage: ego-browser-device register --server https://... [--token TOKEN | --token-stdin] --signer-certificate-sha256 HEX");
     println!("       ego-browser-device candidates");
     println!("       ego-browser-device claim TOOL_SESSION --confirm");
     println!("       ego-browser-device status [BINDING]");

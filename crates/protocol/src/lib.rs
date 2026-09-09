@@ -32,7 +32,7 @@ pub use learning::{
 };
 pub use lease::{Admission, LeaseHealth, LeasePolicy, LeaseState, RenewalOutcome};
 pub use pop::{device_proof_message, DeviceProofContext, DeviceProofError};
-pub use runtime::{parse_runtime_probe, RuntimeProbe};
+pub use runtime::{parse_runtime_probe, parse_runtime_probe_output, RuntimeProbe};
 pub use scheduler::{PermitGuard, RequestScope, Scheduler, SchedulerError};
 pub use state::{BindingState, ExecutionState, StateError};
 pub use types::*;

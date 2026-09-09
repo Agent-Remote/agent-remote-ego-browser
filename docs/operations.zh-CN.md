@@ -6,7 +6,7 @@
 - 远端 Claude session 使用符合条件的 Linux `native` 或 `docker_sandbox` runtime backend，
   且 wrapper、Skill、broker mount、身份与 ACL 合同均已验证
 - 官方本地 `ego-browser` runtime `0.4.7.4`
-- Agent Remote Server 的 HTTPS origin 与用户 registration token
+- Agent Remote Server 的 HTTPS origin；如果已有 `agent-remote` 登录，可自动复用已保存凭据
 - `cosign`、`python3`、`plutil`、`launchctl`、`codesign` 和 macOS 标准工具
 - release archive、release manifest 及两者的 Sigstore bundle
 - 通过独立可信渠道取得的项目签名证书 SHA-256
@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
   bash -s -- --version 0.1.10 --confirm-local-trust
 ```
 
-脚本会先校验 archive 和 manifest，再执行归档内安装器，并由安装器再次完整校验；不会跳过 archive、manifest、Sigstore、证书 pin 或运行时版本校验。首次 ego lite GUI onboarding 必须由当前 macOS 用户完成。若要在同一次运行中注册并绑定，请额外提供 `--server`、`--token`、`--session-id`、`--confirm-full-trust`；没有精确 session ID 时脚本只注册，不会自动 claim。
+脚本会先校验 archive 和 manifest，再执行归档内安装器，并由安装器再次完整校验；不会跳过 archive、manifest、Sigstore、证书 pin 或运行时版本校验。首次 ego lite GUI onboarding 必须由当前 macOS 用户完成。若 `agent-remote` 已登录，脚本会自动发现并调用 `agent-remote ego-browser register`，无需输入 token；`--server` 可选，且只在与已配置服务器一致时接受。需要 claim 明确 session 时加 `--session-id` 和 `--confirm-full-trust`；没有精确 session ID 时脚本只注册，不会自动 claim。旧版 CLI/Device Client 会回退到 `--server` 加手动 token。
 
 ## 校验与安装
 
@@ -62,8 +62,8 @@ current="$HOME/Library/Application Support/Agent Remote Ego Browser/current"
 "$current/bin/ego-browser-device" status BINDING_ID
 ```
 
-registration token 会作为首次操作的命令行输入，应使用短期 token。Device Client 不会在
-输出中显示保存后的替换 credential 或 private key。claim 始终要求准确候选 session 和
+当前版本 registration token 会通过 stdin 传递，应使用短期 token；旧版客户端可能仍要求
+命令行形式。Device Client 不会在输出中显示保存后的替换 credential 或 private key。claim 始终要求准确候选 session 和
 显式全信任确认。Server 派生 `agent-remote:<tool_session_id>`；Device Client 会拒绝响应中
 不同的 label，并把 canonical 值写入 owner-only active-binding handoff。resume 推进
 generation 时会再次校验同一 label。

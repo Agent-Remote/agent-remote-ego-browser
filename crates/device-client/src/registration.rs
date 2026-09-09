@@ -1,13 +1,56 @@
 //! Device registration and identity rotation commands.
 
 use super::*;
+use tokio::io::AsyncReadExt;
+
+/// Read a registration credential without putting it in the process argument
+/// list. The bootstrap installer and the agent-remote CLI use this path so a
+/// short-lived user token is never exposed through `ps` or shell history.
+async fn token_from_args(args: &[String]) -> Result<String, Box<dyn std::error::Error>> {
+    let inline = option(args, "--token")?;
+    let stdin_count = args
+        .iter()
+        .filter(|value| value.as_str() == "--token-stdin")
+        .count();
+    if stdin_count > 1 {
+        return Err("--token-stdin may only be supplied once".into());
+    }
+    if inline.is_some() && stdin_count != 0 {
+        return Err("--token and --token-stdin are mutually exclusive".into());
+    }
+    if let Some(token) = inline {
+        return Ok(token);
+    }
+    if stdin_count == 0 {
+        return Err("--token or --token-stdin is required".into());
+    }
+
+    let mut raw = String::new();
+    tokio::io::stdin()
+        .take((TOKEN_MAX_BYTES + 1) as u64)
+        .read_to_string(&mut raw)
+        .await
+        .map_err(|_| "failed to read registration token from stdin")?;
+    normalize_stdin_token(&raw)
+}
+
+pub(super) fn normalize_stdin_token(raw: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let token = raw.trim_end_matches(['\r', '\n']);
+    if token.is_empty() {
+        return Err("registration token from stdin is empty".into());
+    }
+    if token.len() > TOKEN_MAX_BYTES {
+        return Err("registration token from stdin is too long".into());
+    }
+    Ok(token.to_owned())
+}
 
 pub(super) async fn register(
     store: &CredentialStore,
     args: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server = canonical_server_url(&option(&args, "--server")?.ok_or("--server is required")?)?;
-    let token = option(&args, "--token")?.ok_or("--token is required")?;
+    let token = token_from_args(&args).await?;
     let signer_certificate_sha256 = signer_certificate_sha256(&args)?;
     let runtime = probe_runtime()?;
     let identity = DeviceIdentity::generate("community-local-trust", "community_file");

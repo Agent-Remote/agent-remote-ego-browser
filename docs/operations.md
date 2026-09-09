@@ -6,7 +6,8 @@
 - a remote Claude session using an eligible Linux `native` or `docker_sandbox`
   runtime backend with the verified wrapper, Skill, broker mount, identity, and ACL contract
 - the official local `ego-browser` runtime version `0.4.7.4`
-- an HTTPS Agent Remote Server origin and a user registration token
+- an HTTPS Agent Remote Server origin; an existing `agent-remote` login can supply
+  the stored credential automatically
 - `cosign`, `python3`, `plutil`, `launchctl`, `codesign`, and standard macOS tools
 - the release archive, release manifest, and both Sigstore bundles
 - the expected project signing-certificate SHA-256 from a separately trusted channel
@@ -22,7 +23,7 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
   bash -s -- --version 0.1.10 --confirm-local-trust
 ```
 
-The bootstrap script authenticates the archive and manifest before executing the packaged installer, then invokes that signed installer again; it does not bypass archive, manifest, Sigstore, certificate-pin, or runtime-version checks. The logged-in macOS user must complete the first ego lite GUI onboarding. Add `--server`, `--token`, `--session-id`, and `--confirm-full-trust` to register and claim one exact session in the same run; without an exact session ID the script registers only and never guesses a claim.
+The bootstrap script authenticates the archive and manifest before executing the packaged installer, then invokes that signed installer again; it does not bypass archive, manifest, Sigstore, certificate-pin, or runtime-version checks. The logged-in macOS user must complete the first ego lite GUI onboarding. If `agent-remote` is logged in, the script discovers it and uses `agent-remote ego-browser register` without asking for a token; `--server` is optional and is accepted only when it matches the configured server. Add `--session-id` and `--confirm-full-trust` to claim one exact session; without an exact session ID the script registers only and never guesses a claim. Older CLI/Device Client releases fall back to `--server` plus a manual token.
 
 ## Verify and install
 
@@ -62,10 +63,11 @@ current="$HOME/Library/Application Support/Agent Remote Ego Browser/current"
 "$current/bin/ego-browser-device" status BINDING_ID
 ```
 
-Registration tokens are command-line input for this initial operation and
-should be short-lived. Device Client output never prints the stored replacement
-credential or private key. Claim always requires an exact candidate and the
-explicit full-trust confirmation. The Server derives
+Current clients pass registration tokens over stdin and the tokens should be
+short-lived; older clients may still require the legacy command-line form.
+Device Client output never prints the stored replacement credential or private
+key. Claim always requires an exact candidate and the explicit full-trust
+confirmation. The Server derives
 `agent-remote:<tool_session_id>`; the Device Client rejects a different label in
 the response and stores the canonical value in the owner-only active-binding
 handoff. Resume validates the same label again while advancing the generation.

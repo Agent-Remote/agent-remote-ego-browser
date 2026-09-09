@@ -4,6 +4,13 @@ All notable changes to this repository are recorded here.
 
 ## Unreleased
 
+- feat(install): reuse an authenticated agent-remote CLI credential for automatic
+  Device Client registration, with legacy manual-token fallback.
+- security: accept registration tokens over stdin so current installers and CLI
+  integrations do not expose them in process arguments.
+- fix(runtime): parse the official ego lite version response from stdout or stderr
+  in both the Bridge and Device Client.
+
 ## 0.1.10 - 2026-09-09
 
 - feat(install): add a one-command macOS bootstrap installer for ego lite and

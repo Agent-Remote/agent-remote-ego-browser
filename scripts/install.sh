@@ -21,6 +21,7 @@ SERVER_URL="${EGO_BROWSER_SERVER_URL:-}"
 REGISTRATION_TOKEN="${EGO_BROWSER_REGISTRATION_TOKEN:-}"
 SESSION_ID="${EGO_BROWSER_SESSION_ID:-}"
 RUNTIME_PATH="${EGO_BROWSER_RUNTIME_PATH:-}"
+AGENT_REMOTE_PATH="${EGO_BROWSER_AGENT_REMOTE:-}"
 INSTALL_ROOT="${EGO_BROWSER_INSTALL_ROOT:-}"
 ARCHIVE_PATH="${EGO_BROWSER_ARCHIVE:-}"
 ARCHIVE_SIGSTORE_PATH="${EGO_BROWSER_ARCHIVE_SIGSTORE_BUNDLE:-}"
@@ -57,6 +58,7 @@ Options:
   --server URL                  Register the local Device Client after install.
   --token TOKEN                 Short-lived user registration token.
   --session-id ID               Claim this exact tool session after registration.
+  --agent-remote PATH           Override the agent-remote CLI used for stored credentials.
   --confirm-local-trust         Accept the project-self-signed full-trust Bridge.
   --confirm-full-trust          Permit the explicit session claim (requires --session-id).
   --ego-browser PATH             Absolute path to the local ego-browser runtime.
@@ -75,7 +77,8 @@ Options:
   -h, --help                    Show this help.
 
 Environment variables mirror the main options with the EGO_BROWSER_ prefix,
-including EGO_BROWSER_REGISTRATION_TOKEN and EGO_BROWSER_SESSION_ID.
+including EGO_BROWSER_REGISTRATION_TOKEN, EGO_BROWSER_SESSION_ID, and
+EGO_BROWSER_AGENT_REMOTE.
 
 A claim is intentionally never inferred from a candidate list.  Supplying
 --session-id together with --confirm-full-trust is required to grant the remote
@@ -116,6 +119,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --session-id)
       SESSION_ID="${2:?--session-id requires a value}"
+      shift 2
+      ;;
+    --agent-remote)
+      AGENT_REMOTE_PATH="${2:?--agent-remote requires a path}"
       shift 2
       ;;
     --confirm-local-trust)
@@ -331,6 +338,13 @@ validate_server_options() {
   if [ -n "$INSTALL_ROOT" ] && [[ "$INSTALL_ROOT" != /* ]]; then
     die "--install-root must be an absolute path"
   fi
+  if [ -n "$AGENT_REMOTE_PATH" ] && [[ "$AGENT_REMOTE_PATH" != /* ]]; then
+    die "--agent-remote must be an absolute path"
+  fi
+  if [ -n "$AGENT_REMOTE_PATH" ]; then
+    AGENT_REMOTE_PATH=$(canonical_executable "$AGENT_REMOTE_PATH" 2>/dev/null) ||
+      die "--agent-remote must point to an executable regular file"
+  fi
   if [ -n "$SERVER_URL" ]; then
     case "$SERVER_URL" in
       https://*) ;;
@@ -343,15 +357,72 @@ validate_server_options() {
   if [ -n "$REGISTRATION_TOKEN" ] && [ -z "$SERVER_URL" ]; then
     die "--token requires --server"
   fi
-  if [ -n "$SESSION_ID" ] && [ -z "$SERVER_URL" ]; then
-    die "--session-id requires --server"
-  fi
   if [ -n "$SESSION_ID" ] && [ "$CONFIRM_FULL_TRUST" -ne 1 ]; then
     die "claiming a session requires --confirm-full-trust"
   fi
   if [ "$CONFIRM_FULL_TRUST" -eq 1 ] && [ -z "$SESSION_ID" ]; then
     die "--confirm-full-trust requires --session-id"
   fi
+}
+
+find_agent_remote_cli() {
+  local candidate configured_home
+  if [ -n "$AGENT_REMOTE_PATH" ]; then
+    candidate=$(canonical_executable "$AGENT_REMOTE_PATH" 2>/dev/null || true)
+    [ -n "$candidate" ] || return 1
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  candidate=$(command -v agent-remote || true)
+  if [ -n "$candidate" ]; then
+    candidate=$(canonical_executable "$candidate" 2>/dev/null || true)
+    if [ -n "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  for candidate in "$HOME/.local/bin/agent-remote" "/usr/local/bin/agent-remote" \
+    "/opt/homebrew/bin/agent-remote"; do
+    if [ -f "$candidate" ]; then
+      candidate=$(canonical_executable "$candidate" 2>/dev/null || true)
+      if [ -n "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+  done
+
+  configured_home="${AGENT_REMOTE_HOME:-}"
+  if [ -n "$configured_home" ] && [ -f "$configured_home/bin/agent-remote" ]; then
+    candidate=$(canonical_executable "$configured_home/bin/agent-remote" 2>/dev/null || true)
+    if [ -n "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+agent_remote_register_supported() {
+  local cli="$1"
+  local help
+  help=$("$cli" ego-browser register --help 2>&1) || return 1
+  case "$help" in
+    *"--signer-certificate-sha256"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+device_token_stdin_supported() {
+  local device="$1"
+  local help
+  help=$(EGO_BROWSER_DEVICE_HOME="$WORK/device-capability-probe" "$device" --help 2>&1) || return 1
+  case "$help" in
+    *"--token-stdin"*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 find_runtime_candidate() {
@@ -721,24 +792,87 @@ read_token_from_tty() {
   [ -n "$REGISTRATION_TOKEN" ] || die "registration token cannot be empty"
 }
 
+register_with_device() {
+  local device="$1"
+  [ -n "$REGISTRATION_TOKEN" ] || die "registration token cannot be empty"
+
+  if device_token_stdin_supported "$device"; then
+    # Keep the token out of argv and shell history on current Device Clients.
+    printf '%s' "$REGISTRATION_TOKEN" |
+      EGO_BROWSER_EXECUTABLE="$RUNTIME_PATH" "$device" register \
+        --server "$SERVER_URL" \
+        --token-stdin \
+        --signer-certificate-sha256 "$CERTIFICATE_SHA256"
+  else
+    # Older releases predate --token-stdin. Preserve their explicit-token
+    # interface so an existing installation can still be bootstrapped.
+    EGO_BROWSER_EXECUTABLE="$RUNTIME_PATH" "$device" register \
+      --server "$SERVER_URL" \
+      --token "$REGISTRATION_TOKEN" \
+      --signer-certificate-sha256 "$CERTIFICATE_SHA256"
+  fi
+  REGISTRATION_TOKEN=""
+}
+
+register_with_agent_remote() {
+  local cli="$1"
+  local register_args
+  register_args=(ego-browser register --signer-certificate-sha256 "$CERTIFICATE_SHA256")
+  if [ -n "$SERVER_URL" ]; then
+    register_args+=(--server-url "$SERVER_URL")
+  fi
+  log "using the stored agent-remote credential to register this Mac Device Client ..."
+  AGENT_REMOTE_EGO_BROWSER_DEVICE="$2" \
+    EGO_BROWSER_EXECUTABLE="$RUNTIME_PATH" \
+    "$cli" "${register_args[@]}"
+}
+
 register_and_claim() {
-  local current_root device
-  if [ -z "$SERVER_URL" ]; then
-    return 0
-  fi
-  if [ -z "$REGISTRATION_TOKEN" ]; then
-    read_token_from_tty
-  fi
+  local current_root device cli auto_registration_supported
+  local requested_server registration_complete
+  requested_server="$SERVER_URL"
+  registration_complete=0
   current_root="${INSTALL_ROOT:-$HOME/Library/Application Support/Agent Remote Ego Browser}/current"
   device="$current_root/bin/ego-browser-device"
   [ -x "$device" ] || die "installed Device Client is unavailable: $device"
 
-  log "registering this Mac Device Client ..."
-  EGO_BROWSER_EXECUTABLE="$RUNTIME_PATH" "$device" register \
-    --server "$SERVER_URL" \
-    --token "$REGISTRATION_TOKEN" \
-    --signer-certificate-sha256 "$CERTIFICATE_SHA256"
-  REGISTRATION_TOKEN=""
+  # A logged-in agent-remote CLI owns the credential store. Delegate token
+  # retrieval to it instead of asking users to paste a token into this script.
+  # Capability checks keep older CLI/Device Client releases on the legacy path.
+  if [ -z "$REGISTRATION_TOKEN" ]; then
+    cli=$(find_agent_remote_cli || true)
+    auto_registration_supported=0
+    if [ -n "$cli" ] && agent_remote_register_supported "$cli" &&
+      device_token_stdin_supported "$device"; then
+      auto_registration_supported=1
+      if register_with_agent_remote "$cli" "$device"; then
+        registration_complete=1
+      elif [ -z "$requested_server" ] && [ -n "$SESSION_ID" ]; then
+        die "automatic agent-remote registration failed; check login and server configuration"
+      elif [ -z "$requested_server" ]; then
+        log "agent-remote credential is unavailable; Bridge installed without registration"
+        return 0
+      else
+        log "automatic agent-remote registration failed; falling back to a manual token"
+      fi
+    fi
+    if [ "$auto_registration_supported" -eq 0 ] && [ -z "$requested_server" ]; then
+      if [ -n "$SESSION_ID" ]; then
+        die "--session-id requires a logged-in agent-remote CLI or an explicit --server and --token"
+      fi
+      log "agent-remote CLI with stored credentials was not found; Bridge installed without registration"
+      return 0
+    fi
+  fi
+
+  if [ "$registration_complete" -eq 0 ]; then
+    [ -n "$SERVER_URL" ] || die "a server URL is required for manual Device Client registration"
+    if [ -z "$REGISTRATION_TOKEN" ]; then
+      read_token_from_tty
+    fi
+    log "registering this Mac Device Client ..."
+    register_with_device "$device"
+  fi
 
   log "fetching exact running tool-session candidates ..."
   EGO_BROWSER_EXECUTABLE="$RUNTIME_PATH" "$device" candidates

@@ -458,4 +458,5 @@ else:
 PY
 )
 printf '%s\n' "$readiness"
-echo "register explicitly with: $current/bin/ego-browser-device register --server https://SERVER --token TOKEN --signer-certificate-sha256 $expected_certificate_sha256"
+echo "reuse an existing agent-remote login with: agent-remote ego-browser register --signer-certificate-sha256 $expected_certificate_sha256"
+echo "legacy direct registration: $current/bin/ego-browser-device register --server https://SERVER --token TOKEN --signer-certificate-sha256 $expected_certificate_sha256"

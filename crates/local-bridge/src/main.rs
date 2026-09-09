@@ -12,9 +12,10 @@ use ego_browser_bridge::{
     BridgeError, BridgeSupervisor,
 };
 use ego_browser_bridge_protocol::{
-    canonical_json, is_dedicated_task_space, parse_runtime_probe, parse_strict_json, read_frame,
-    write_frame, ConcurrencyMode, CredentialProfile, OuterEnvelope, ReleaseProfile, RuntimeProbe,
-    LOCAL_PLATFORM, REMOTE_PLATFORM, SUPPORTED_LOCAL_RUNTIME_VERSION, SUPPORTED_SKILL_VERSION,
+    canonical_json, is_dedicated_task_space, parse_runtime_probe_output, parse_strict_json,
+    read_frame, write_frame, ConcurrencyMode, CredentialProfile, OuterEnvelope, ReleaseProfile,
+    RuntimeProbe, LOCAL_PLATFORM, REMOTE_PLATFORM, SUPPORTED_LOCAL_RUNTIME_VERSION,
+    SUPPORTED_SKILL_VERSION,
 };
 use ego_browser_device::{CredentialError, CredentialStore, DeviceApiClient, DeviceIdentity};
 use futures_util::{stream::FuturesUnordered, SinkExt, StreamExt};

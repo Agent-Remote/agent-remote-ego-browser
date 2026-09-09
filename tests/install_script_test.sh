@@ -16,7 +16,8 @@ for expected in \
   "--archive-sigstore-bundle" \
   "--manifest-sigstore-bundle" \
   "--skip-ego-lite" \
-  "--session-id"; do
+  "--session-id" \
+  "--agent-remote"; do
   grep -F -- "$expected" <<<"$help_output" >/dev/null
 done
 
@@ -64,11 +65,9 @@ mkdir -p "$work/package/installer" "$work/fake-bin" "$work/install-root"
 # shellcheck disable=SC2016
 printf '%s\n' '#!/bin/sh' \
   'if [ -n "${FAKE_INSTALL_LOG:-}" ]; then printf "%s\n" "$*" > "$FAKE_INSTALL_LOG"; fi' \
-  'if [ -n "${FAKE_DEVICE_LOG:-}" ]; then' \
-  '  mkdir -p "$EGO_BROWSER_INSTALL_ROOT/current/bin"' \
-  '  printf "%s\n" "#!/bin/sh" '\''printf "%s|%s\\n" "$EGO_BROWSER_EXECUTABLE" "$*" >> "$FAKE_DEVICE_LOG"'\'' > "$EGO_BROWSER_INSTALL_ROOT/current/bin/ego-browser-device"' \
-  '  chmod 0755 "$EGO_BROWSER_INSTALL_ROOT/current/bin/ego-browser-device"' \
-  'fi' \
+  'mkdir -p "$EGO_BROWSER_INSTALL_ROOT/current/bin"' \
+  'printf "%s\n" "#!/bin/sh" '\''if [ "${1:-}" = "--help" ]; then printf "%s\\n" --token-stdin; exit 0; fi; if [ -n "${FAKE_DEVICE_LOG:-}" ]; then printf "%s|%s\\n" "$EGO_BROWSER_EXECUTABLE" "$*" >> "$FAKE_DEVICE_LOG"; fi; if [ "${1:-}" = "register" ] && [ -n "${FAKE_DEVICE_STDIN:-}" ]; then cat > "$FAKE_DEVICE_STDIN"; fi'\'' > "$EGO_BROWSER_INSTALL_ROOT/current/bin/ego-browser-device"' \
+  'chmod 0755 "$EGO_BROWSER_INSTALL_ROOT/current/bin/ego-browser-device"' \
   >"$work/package/installer/install-macos.sh"
 chmod 0755 "$work/package/installer/install-macos.sh"
 printf '%s\n' '#!/bin/sh' \
@@ -135,9 +134,27 @@ grep -F -- "one-click installation completed" "$work/output" >/dev/null
 grep -F -- "--confirm-local-trust" "$work/invocation.log" >/dev/null
 echo "one-click install local-archive smoke passed"
 
+if PATH="$work/fake-bin:/usr/bin:/bin" bash "$script" \
+  --archive "$work/archive.tar.gz" \
+  --archive-sigstore-bundle "$work/archive.sigstore.json" \
+  --manifest "$work/manifest.json" \
+  --manifest-sigstore-bundle "$work/manifest.sigstore.json" \
+  --ego-browser "$work/runtime" \
+  --install-root "$work/invalid-agent-install-root" \
+  --agent-remote "$work/missing-agent-remote" \
+  --skip-dependency-install --skip-ego-lite --no-start --confirm-local-trust \
+  >"$work/invalid-agent-output" 2>&1; then
+  echo "invalid --agent-remote path was accepted" >&2
+  exit 1
+fi
+grep -F -- "--agent-remote must point to an executable regular file" "$work/invalid-agent-output" >/dev/null
+echo "one-click install agent-remote path guard passed"
+
 device_log="$work/device.log"
+device_stdin="$work/device-stdin"
 runtime_real="$(cd "$(dirname "$work/runtime")" && pwd -P)/$(basename "$work/runtime")"
 FAKE_DEVICE_LOG="$device_log" \
+FAKE_DEVICE_STDIN="$device_stdin" \
 FAKE_INSTALL_LOG="$work/registration-invocation.log" \
 PATH="$work/fake-bin:/usr/bin:/bin" \
   bash "$script" \
@@ -152,8 +169,52 @@ PATH="$work/fake-bin:/usr/bin:/bin" \
     >"$work/registration-output" 2>&1
 grep -F -- "$runtime_real|register" "$device_log" >/dev/null
 grep -F -- "$runtime_real|candidates" "$device_log" >/dev/null
+grep -F -- "--token-stdin" "$device_log" >/dev/null
+test "$(cat "$device_stdin")" = "test-token"
+if grep -F -- "test-token" "$device_log" >/dev/null; then
+  echo "registration token leaked into Device Client argv" >&2
+  exit 1
+fi
 if grep -F -- '|claim ' "$device_log" >/dev/null; then
   echo "bootstrap claimed a session without an explicit session ID" >&2
   exit 1
 fi
 echo "one-click install registration smoke passed"
+
+# A logged-in agent-remote CLI should supply the server and credential without
+# making the installer ask for --server or --token.
+agent_remote_log="$work/agent-remote.log"
+printf '%s\n' '#!/bin/sh' \
+  'if [ "${1:-}" = "ego-browser" ] && [ "${2:-}" = "register" ] && [ "${3:-}" = "--help" ]; then' \
+  '  printf "%s\n" "--signer-certificate-sha256"' \
+  '  exit 0' \
+  'fi' \
+  'printf "%s|%s\n" "${AGENT_REMOTE_EGO_BROWSER_DEVICE:-}" "$*" > "$FAKE_AGENT_REMOTE_LOG"' \
+  'exit 0' >"$work/fake-bin/agent-remote"
+chmod 0755 "$work/fake-bin/agent-remote"
+auto_device_log="$work/auto-device.log"
+FAKE_AGENT_REMOTE_LOG="$agent_remote_log" \
+FAKE_DEVICE_LOG="$auto_device_log" \
+PATH="$work/fake-bin:/usr/bin:/bin" \
+  bash "$script" \
+    --archive "$work/archive.tar.gz" \
+    --archive-sigstore-bundle "$work/archive.sigstore.json" \
+    --manifest "$work/manifest.json" \
+    --manifest-sigstore-bundle "$work/manifest.sigstore.json" \
+    --ego-browser "$work/runtime" \
+    --install-root "$work/auto-install-root" \
+    --skip-dependency-install --skip-ego-lite --no-start --confirm-local-trust \
+    >"$work/auto-output" 2>&1
+grep -F -- "using the stored agent-remote credential" "$work/auto-output" >/dev/null
+grep -F -- "ego-browser register" "$agent_remote_log" >/dev/null
+grep -F -- "--signer-certificate-sha256" "$agent_remote_log" >/dev/null
+if grep -E -- "(^|\|)[^|]*--(server|token)( |$)" "$agent_remote_log" >/dev/null; then
+  echo "automatic registration unexpectedly received explicit server/token arguments" >&2
+  exit 1
+fi
+grep -F -- "candidates" "$auto_device_log" >/dev/null
+if grep -F -- "Registration token:" "$work/auto-output" >/dev/null; then
+  echo "automatic registration unexpectedly prompted for a token" >&2
+  exit 1
+fi
+echo "one-click install stored-credential smoke passed"

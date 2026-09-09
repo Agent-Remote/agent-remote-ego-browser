@@ -40,6 +40,16 @@ fn top_level_error_line_omits_wrapped_error_content() {
 }
 
 #[test]
+fn token_stdin_normalization_strips_only_line_endings() {
+    assert_eq!(
+        crate::registration::normalize_stdin_token("art_test\r\n").expect("token"),
+        "art_test"
+    );
+    assert!(crate::registration::normalize_stdin_token("\n").is_err());
+    assert!(crate::registration::normalize_stdin_token(&"x".repeat(4097)).is_err());
+}
+
+#[test]
 fn registration_response_must_match_rotated_identity_and_revision() {
     let mut identity = DeviceIdentity::generate("community-local-trust", "community_file");
     identity.device_id = "rotation-response-device".into();

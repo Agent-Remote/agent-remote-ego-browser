@@ -118,7 +118,14 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
     --confirm-full-trust
 ```
 
-The script installs a missing Homebrew `cosign`, authenticates the release archive and manifest before executing any packaged installer code, and verifies a pinned official ego lite installer. The first GUI onboarding must still be completed by the user; the script never guesses a candidate session. Use a short-lived registration token and do not put it in shell history or chat logs.
+When the `agent-remote` CLI is already logged in, the bootstrap automatically discovers it and delegates registration to `agent-remote ego-browser register`; the configured server and stored credential are reused, and the token is passed only over stdin. In that case omit `--server` and `--token`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
+  bash -s -- --version 0.1.10 --confirm-local-trust
+```
+
+Add `--session-id EXACT_TOOL_SESSION_ID --confirm-full-trust` when an exact session should also be claimed. The script installs a missing Homebrew `cosign`, authenticates the release archive and manifest before executing any packaged installer code, and verifies a pinned official ego lite installer. The first GUI onboarding must still be completed by the user; the script never guesses a candidate session. If an older CLI or Device Client is detected, it falls back to the explicit `--server`/`--token` flow. Use a short-lived registration token and do not put it in shell history or chat logs.
 
 The script embeds the current persistent project certificate pin. After a certificate rotation or when using a custom repository, pass `--certificate-sha256`. See the full option list with:
 
@@ -140,6 +147,15 @@ ego-browser-device candidates
 ego-browser-device claim EXACT_TOOL_SESSION_ID --confirm
 ego-browser-device status BINDING_ID
 ```
+
+After `agent-remote login`, the same registration can reuse the CLI credential store:
+
+```sh
+agent-remote ego-browser register \
+  --signer-certificate-sha256 EXPECTED_64_HEX_DIGEST
+```
+
+The CLI validates that an optional `--server-url` matches the configured server and sends the stored token to the Device Client over stdin. Older releases without this command keep the manual registration flow above.
 
 Use the normal wrapper interface from that remote session:
 
