@@ -115,13 +115,19 @@ if PATH="$work/fake-bin:$PATH" \
 fi
 test "$(tr -d '[:space:]' < "$stale_root/VERSION")" = "$current_version"
 
-python3 - "$duplicate_root/CHANGELOG.md" "$prepare_version" <<'PY'
+python3 - "$duplicate_root/CHANGELOG.md" "$prepare_version" "$current_version" <<'PY'
+import re
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 source = path.read_text()
-path.write_text(source.replace("## Unreleased\n", f"## Unreleased\n\n## {sys.argv[2]} - 2000-01-01\n", 1))
+pattern = rf"(?m)^## {re.escape(sys.argv[3])} - "
+replacement = f"## {sys.argv[2]} - 2000-01-01\n\n## {sys.argv[3]} - "
+updated, count = re.subn(pattern, replacement, source, count=1)
+if count != 1:
+    raise SystemExit("could not create duplicate changelog heading fixture")
+path.write_text(updated)
 PY
 if PATH="$work/fake-bin:$PATH" \
   bash "$duplicate_root/scripts/prepare-release.sh" "$prepare_version" >/dev/null 2>&1; then
@@ -204,6 +210,7 @@ assert after_vector["capability"]["skill_version"] == before_vector["capability"
 assert after_vector["capability"]["local_ego_browser_runtime_version"] == before_vector["capability"]["local_ego_browser_runtime_version"]
 
 changelog = (after / "CHANGELOG.md").read_text()
+assert "## Unreleased" not in changelog
 assert len(re.findall(rf"(?m)^## {re.escape(new)} - [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$", changelog)) == 1
 release_section = re.search(
     rf"(?ms)^## {re.escape(new)} - [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}\n\n"

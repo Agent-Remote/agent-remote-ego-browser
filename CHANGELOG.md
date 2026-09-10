@@ -2,8 +2,6 @@
 
 All notable changes to this repository are recorded here.
 
-## Unreleased
-
 ## 0.1.11 - 2026-09-09
 
 - feat(install): reuse an authenticated agent-remote CLI credential for automatic

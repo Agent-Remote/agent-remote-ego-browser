@@ -35,7 +35,8 @@ scripts/run-quality-checks.sh
 prepare 脚本要求目标 semantic version 严格递增。它会更新 workspace version、
 `Cargo.lock` 中所有本仓库 package entry、`VERSION`、协议 capability vector，以及本仓库
 负责的全部中英文兼容矩阵和安装示例。脚本会在写入前拒绝过期 source value 与已有 changelog
-heading，添加带日期的 changelog entry，保持依赖、schema、Skill、runtime 和 workflow action
+heading，添加带日期的 changelog entry；已有待发布说明会直接并入该版本，没有说明时从仓库
+历史生成，且不会创建 `Unreleased` 区块；保持依赖、schema、Skill、runtime 和 workflow action
 版本不变，最后执行 locked workspace 校验。正式 workflow 提交这些文件、创建不可变
 `vVERSION` tag，再 dispatch 与 tag 绑定的 release workflow。
 

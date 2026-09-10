@@ -204,20 +204,37 @@ if vector_after.get("capability", {}).get("remote_wrapper_version") != version:
 changelog_path, changelog = read_source("CHANGELOG.md")
 if re.search(rf"(?m)^## {re.escape(version)}(?:\s+-|\s*$)", changelog):
     raise SystemExit("release already appears in the changelog")
-marker = "## Unreleased\n"
-if changelog.count(marker) != 1:
-    raise SystemExit("changelog must contain exactly one Unreleased section")
 heading = f"## {version} - {datetime.date.today().isoformat()}"
-unreleased = re.search(r"(?ms)^## Unreleased\n(?P<body>.*?)(?=^## |\Z)", changelog)
-if unreleased is None:
-    raise SystemExit("changelog Unreleased section is malformed")
-notes = unreleased.group("body").strip() or generated_release_notes()
-release_section = f"## Unreleased\n\n{heading}\n\n{notes}\n\n"
-updates[changelog_path] = (
-    changelog[: unreleased.start()]
-    + release_section
-    + changelog[unreleased.end() :]
-)
+pending_sections = list(re.finditer(r"(?m)^## Unreleased[ \t]*$", changelog))
+if len(pending_sections) > 1:
+    raise SystemExit("changelog contains multiple Unreleased sections")
+if pending_sections:
+    unreleased = re.search(
+        r"(?ms)^## Unreleased[ \t]*\n(?P<body>.*?)(?=^## |\Z)",
+        changelog,
+    )
+    if unreleased is None:
+        raise SystemExit("changelog Unreleased section is malformed")
+    notes = unreleased.group("body").strip() or generated_release_notes()
+    release_section = f"{heading}\n\n{notes}\n\n"
+    updates[changelog_path] = (
+        changelog[: unreleased.start()]
+        + release_section
+        + changelog[unreleased.end() :]
+    )
+else:
+    notes = generated_release_notes()
+    release_section = f"{heading}\n\n{notes}\n\n"
+    first_heading = re.search(r"(?m)^## ", changelog)
+    if first_heading is None:
+        separator = "" if changelog.endswith("\n\n") else "\n\n"
+        updates[changelog_path] = changelog + separator + release_section
+    else:
+        updates[changelog_path] = (
+            changelog[: first_heading.start()]
+            + release_section
+            + changelog[first_heading.start() :]
+        )
 updates[version_path] = version + "\n"
 
 for path, content in updates.items():

@@ -39,6 +39,8 @@ workspace version, all repository package entries in `Cargo.lock`, `VERSION`,
 the protocol capability vector, and every English/Chinese compatibility and
 installer example owned by this repository. It rejects stale source values and
 any existing changelog heading before writing, adds the dated changelog entry,
+promotes any pending notes directly into that version entry (or generates notes
+from repository history when none exist), never creates an `Unreleased` section,
 leaves dependency, schema, Skill, runtime, and workflow-action versions
 unchanged, and finishes with locked workspace validation. The official workflow
 commits those files, creates immutable tag `vVERSION`, and dispatches the
