@@ -164,6 +164,7 @@ user_token=$(json_field "$fixture" user_token)
   AGENT_REMOTE_SECRET_KEY=ego-browser-real-relay-e2e-secret \
   EGO_BROWSER_BRIDGE_ENABLED=true \
   EGO_BROWSER_REQUIRE_DEVICE_POP=true \
+  EGO_BROWSER_LEASE_RENEW_INTERVAL_SECONDS=5 \
   EGO_BROWSER_EXPECTED_RELEASE_PROFILE=community-local-trust \
   EGO_BROWSER_EXPECTED_SIGNER_CERTIFICATE_SHA256="$certificate_digest" \
   LOG_LEVEL=INFO \
@@ -217,7 +218,7 @@ binding_id=$(json_field "$binding_file" binding_id)
 
 run_device service >"$work/device.log" 2>&1 &
 device_pid=$!
-for _ in $(seq 1 100); do
+for _ in $(seq 1 200); do
   [ -S "$device_home/device-service.sock" ] && break
   kill -0 "$device_pid" 2>/dev/null || {
     cat "$work/device.log" >&2
@@ -291,6 +292,17 @@ PY
   }
   sleep 0.05
 done
+
+renew_path="\"path\": \"/api/v1/ego-browser/bindings/$binding_id/renew\""
+for _ in $(seq 1 200); do
+  grep -Fq "$renew_path" "$work/server.log" && break
+  kill -0 "$bridge_pid" 2>/dev/null || {
+    cat "$work/bridge.log" >&2
+    exit 1
+  }
+  sleep 0.05
+done
+grep -Fq "$renew_path" "$work/server.log"
 
 for round in 1 2 3; do
   output=$(printf "cliLog('real-relay-round-%s')\n" "$round" | run_wrapper nodejs)

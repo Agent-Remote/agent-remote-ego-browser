@@ -1,9 +1,10 @@
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use ego_browser_bridge_protocol::{
@@ -152,23 +153,138 @@ fn load_verified_policy(
 }
 
 fn probe_runtime() -> Result<RuntimeProbe, Box<dyn std::error::Error>> {
-    let executable = env::var_os("EGO_BROWSER_EXECUTABLE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("ego-browser"));
-    let output = std::process::Command::new(executable)
-        .arg("--version")
-        .env_clear()
-        .output()
-        .map_err(|_| "ego-browser runtime is unavailable")?;
-    if !output.status.success() {
-        return Err("ego-browser runtime probe failed".into());
+    let explicit = env::var_os("EGO_BROWSER_EXECUTABLE");
+    let search_path = env::var_os("PATH");
+    let home = env::var_os("HOME");
+    let candidates = runtime_executable_candidates(
+        explicit.as_deref(),
+        search_path.as_deref(),
+        home.as_deref(),
+    )?;
+    probe_runtime_candidates(&candidates)
+}
+
+fn runtime_executable_candidates(
+    explicit: Option<&OsStr>,
+    search_path: Option<&OsStr>,
+    home: Option<&OsStr>,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    if let Some(explicit) = explicit.filter(|value| !value.is_empty()) {
+        let path = PathBuf::from(explicit);
+        if !path.is_absolute() {
+            return Err("EGO_BROWSER_EXECUTABLE must be an absolute path".into());
+        }
+        let mut candidates = Vec::new();
+        push_runtime_candidate(&mut candidates, path);
+        if candidates.is_empty() {
+            return Err("ego-browser runtime is unavailable".into());
+        }
+        return Ok(candidates);
     }
-    let probe = parse_runtime_probe_output(&output.stdout, &output.stderr)
-        .map_err(|_| "ego-browser runtime probe is malformed")?;
-    if probe.ego_browser_version != SUPPORTED_LOCAL_RUNTIME_VERSION {
-        return Err("EGO_BROWSER_VERSION_MISMATCH: unsupported local ego-browser runtime".into());
+
+    let mut candidates = Vec::new();
+    if let Some(search_path) = search_path {
+        for directory in env::split_paths(search_path) {
+            if !directory.as_os_str().is_empty() {
+                push_runtime_candidate(&mut candidates, directory.join("ego-browser"));
+            }
+        }
     }
-    Ok(probe)
+    if let Some(home) = home.filter(|value| !value.is_empty()).map(PathBuf::from) {
+        push_runtime_candidate(&mut candidates, home.join(".local/bin/ego-browser"));
+        push_runtime_candidate(
+            &mut candidates,
+            home.join(".local/share/ego/active_version_dir/Helpers/ego-browser"),
+        );
+        #[cfg(target_os = "macos")]
+        push_ego_lite_app_candidates(&mut candidates, &home.join("Applications/ego lite.app"));
+    }
+    #[cfg(target_os = "macos")]
+    push_ego_lite_app_candidates(&mut candidates, Path::new("/Applications/ego lite.app"));
+    Ok(candidates)
+}
+
+#[cfg(target_os = "macos")]
+fn push_ego_lite_app_candidates(candidates: &mut Vec<PathBuf>, app: &Path) {
+    push_runtime_candidate(
+        candidates,
+        app.join("Contents/Frameworks/ego Framework.framework/Versions")
+            .join(SUPPORTED_LOCAL_RUNTIME_VERSION)
+            .join("Helpers/ego-browser"),
+    );
+    push_runtime_candidate(
+        candidates,
+        app.join(
+            "Contents/Frameworks/ego Framework.framework/Versions/Current/Helpers/ego-browser",
+        ),
+    );
+    push_runtime_candidate(candidates, app.join("Contents/MacOS/ego-browser"));
+}
+
+fn push_runtime_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    let Ok(path) = path.canonicalize() else {
+        return;
+    };
+    let Ok(metadata) = path.metadata() else {
+        return;
+    };
+    if !metadata.is_file() || !metadata_is_executable(&metadata) || candidates.contains(&path) {
+        return;
+    }
+    candidates.push(path);
+}
+
+fn metadata_is_executable(metadata: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn probe_runtime_candidates(
+    candidates: &[PathBuf],
+) -> Result<RuntimeProbe, Box<dyn std::error::Error>> {
+    let mut probe_failed = false;
+    let mut probe_malformed = false;
+    let mut version_mismatched = false;
+    for executable in candidates {
+        let output = match std::process::Command::new(executable)
+            .arg("--version")
+            .env_clear()
+            .output()
+        {
+            Ok(output) => output,
+            Err(_) => continue,
+        };
+        if !output.status.success() {
+            probe_failed = true;
+            continue;
+        }
+        let probe = match parse_runtime_probe_output(&output.stdout, &output.stderr) {
+            Ok(probe) => probe,
+            Err(_) => {
+                probe_malformed = true;
+                continue;
+            }
+        };
+        if probe.ego_browser_version == SUPPORTED_LOCAL_RUNTIME_VERSION {
+            return Ok(probe);
+        }
+        version_mismatched = true;
+    }
+    if version_mismatched {
+        Err("EGO_BROWSER_VERSION_MISMATCH: unsupported local ego-browser runtime".into())
+    } else if probe_malformed {
+        Err("ego-browser runtime probe is malformed".into())
+    } else if probe_failed {
+        Err("ego-browser runtime probe failed".into())
+    } else {
+        Err("ego-browser runtime is unavailable".into())
+    }
 }
 
 fn print_help() {

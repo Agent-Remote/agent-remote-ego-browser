@@ -377,6 +377,45 @@ fn connected_response_requires_complete_matching_capability() {
 }
 
 #[test]
+fn startup_renews_an_already_active_generation() {
+    let config = test_config();
+    let identity = DeviceIdentity::generate("logic-test", "community_file");
+    let mut response = connected_response(&config, &identity);
+    assert_eq!(
+        startup_activation(&response, &config, &identity).expect("active binding should renew"),
+        StartupActivation::Renew
+    );
+
+    for status in ["pending_device", "connecting", "probing_local_browser"] {
+        response["data"]["status"] = serde_json::json!(status);
+        assert_eq!(
+            startup_activation(&response, &config, &identity)
+                .expect("pending binding should connect"),
+            StartupActivation::Connect
+        );
+    }
+}
+
+#[test]
+fn startup_rejects_stale_or_terminal_binding_state() {
+    let config = test_config();
+    let identity = DeviceIdentity::generate("logic-test", "community_file");
+    let response = connected_response(&config, &identity);
+    for (status, expected) in [
+        ("paused", "explicit resume"),
+        ("failed", "explicit resume"),
+        ("expired", "lease"),
+        ("revoked", "revoked"),
+    ] {
+        let mut candidate = response.clone();
+        candidate["data"]["status"] = serde_json::json!(status);
+        let error = startup_activation(&candidate, &config, &identity)
+            .expect_err("stale state must not be auto-resumed");
+        assert!(error.to_string().contains(expected));
+    }
+}
+
+#[test]
 fn connected_response_rejects_changed_or_duplicate_capabilities() {
     let config = test_config();
     let identity = DeviceIdentity::generate("logic-test", "community_file");

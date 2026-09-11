@@ -50,6 +50,42 @@ fn token_stdin_normalization_strips_only_line_endings() {
 }
 
 #[test]
+fn runtime_probe_discovers_the_standard_user_install_without_path() {
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let executable = temporary.path().join(".local/bin/ego-browser");
+    fs::create_dir_all(executable.parent().expect("runtime parent"))
+        .expect("create runtime directory");
+    fs::write(
+        &executable,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' 'ego-browser {}' '  chromium 150.0.7871.101' '  node v24.18.0'\n",
+            SUPPORTED_LOCAL_RUNTIME_VERSION
+        ),
+    )
+    .expect("write fake runtime");
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700))
+        .expect("make fake runtime executable");
+
+    let candidates = runtime_executable_candidates(None, None, Some(temporary.path().as_os_str()))
+        .expect("discover runtime candidates");
+    assert_eq!(
+        candidates.first(),
+        Some(&executable.canonicalize().expect("canonical fake runtime"))
+    );
+    let probe = probe_runtime_candidates(&candidates).expect("probe standard runtime");
+    assert_eq!(probe.ego_browser_version, SUPPORTED_LOCAL_RUNTIME_VERSION);
+}
+
+#[test]
+fn explicit_runtime_must_be_an_absolute_executable() {
+    assert!(runtime_executable_candidates(Some(OsStr::new("ego-browser")), None, None).is_err());
+    assert!(
+        runtime_executable_candidates(Some(OsStr::new("/missing/ego-browser")), None, None)
+            .is_err()
+    );
+}
+
+#[test]
 fn registration_response_must_match_rotated_identity_and_revision() {
     let mut identity = DeviceIdentity::generate("community-local-trust", "community_file");
     identity.device_id = "rotation-response-device".into();

@@ -1,12 +1,12 @@
 use super::{
-    execution_metric_events, helper_guard_script, ActiveRemoteRequest, BridgeConfig, BridgeError,
-    BridgeSupervisor, FileGuardHandle, RemoteRequestKey,
+    execution_metric_events, helper_guard_script, now_seconds, ActiveRemoteRequest, BridgeConfig,
+    BridgeError, BridgeSupervisor, FileGuardHandle, PermitRequest, RemoteRequestKey,
 };
 use ego_browser_bridge_protocol::{
     aad_for_outer, canonical_json, encode_b64url, Allowlist, AllowlistLimits, ArtifactDescriptor,
     ConcurrencyMode, CredentialProfile, Direction, ExecutionStatus, InnerCancelRequest,
-    InnerExecuteRequest, InnerMessageType, OuterEnvelope, OuterMessageType, ProtocolError,
-    ReleaseProfile, SessionCipher,
+    InnerExecuteRequest, InnerMessageType, LeasePolicy, OuterEnvelope, OuterMessageType,
+    ProtocolError, ReleaseProfile, SessionCipher, PROTOCOL_VERSION,
 };
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
@@ -74,6 +74,46 @@ fn operational_error_codes_are_content_free() {
         assert!(matches!(error.log_code(), "protocol_error" | "io_error"));
         assert!(!error.log_code().contains("sensitive"));
     }
+}
+
+#[test]
+fn reconnect_during_renewal_window_restores_transport_but_not_request_admission() {
+    let directory = tempfile::tempdir().expect("create test directory");
+    let root = directory
+        .path()
+        .canonicalize()
+        .expect("canonical test directory");
+    let supervisor = BridgeSupervisor::new(test_config(root.join("bridge-work")))
+        .expect("create bridge supervisor");
+    let policy = LeasePolicy::default();
+    {
+        let mut lease = supervisor.lease.lock().expect("lease lock");
+        lease.lease_until =
+            now_seconds().saturating_add(policy.admission_min_remaining_seconds.saturating_sub(1));
+    }
+
+    supervisor.cancel();
+    assert!(supervisor.is_cancelled());
+    supervisor
+        .resume_after_reconnect()
+        .expect("renewal window permits transport reconnect");
+    assert!(!supervisor.is_cancelled());
+
+    let request = PermitRequest {
+        protocol: PROTOCOL_VERSION.into(),
+        message_type: "permit_request".into(),
+        script_bytes: 1,
+        timeout_ms: 1_000,
+        cwd_label: "workspace".into(),
+        concurrency_mode: ConcurrencyMode::Binding,
+        task_space_scope: None,
+        tab_scope: None,
+        startup_nonce: None,
+    };
+    assert!(matches!(
+        supervisor.issue_permit(&request),
+        Err(BridgeError::LeaseRenewalRequired)
+    ));
 }
 
 fn test_config(work_root: std::path::PathBuf) -> BridgeConfig {

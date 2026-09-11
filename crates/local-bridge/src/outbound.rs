@@ -155,11 +155,31 @@ pub(super) async fn run_outbound(args: BridgeArgs) -> Result<(), BridgeError> {
             return Err(error);
         }
         result = async {
-            let connected = api
-                .connected(&config.binding_id, config.generation, connected_payload)
+            // A process restart can find a generation that the Server already
+            // activated.  Inspect the authoritative binding state first so we
+            // renew that generation instead of replaying activation and
+            // receiving EGO_BROWSER_STATE_CONFLICT.
+            let status = api
+                .status(&config.binding_id)
                 .await
                 .map_err(map_credential_error)?;
-            let lease = parse_connected_response(&connected, &config, &identity)?;
+            let activation = startup_activation(&status, &config, &identity)?;
+            let response = match activation {
+                StartupActivation::Connect => api
+                    .connected(&config.binding_id, config.generation, connected_payload)
+                    .await
+                    .map_err(map_credential_error)?,
+                StartupActivation::Renew => api
+                    .renew_binding(
+                        &config.binding_id,
+                        config.generation,
+                        config.allowlist_revision,
+                        config.learning_bundle_digest.clone(),
+                    )
+                    .await
+                    .map_err(map_credential_error)?,
+            };
+            let lease = parse_connected_response(&response, &config, &identity)?;
             supervisor.update_lease(
                 lease.generation,
                 lease.lease_until,

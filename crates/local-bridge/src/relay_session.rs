@@ -235,8 +235,16 @@ pub(super) async fn run_lease_observer_loop(
             supervisor.revoke();
             return;
         }
-        let result =
-            tokio::time::timeout(Duration::from_secs(10), api.status(&config.binding_id)).await;
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            api.renew_binding(
+                &config.binding_id,
+                config.generation,
+                config.allowlist_revision,
+                config.learning_bundle_digest.clone(),
+            ),
+        )
+        .await;
         match result {
             Ok(Ok(value)) => match parse_connected_response(&value, &config, &identity) {
                 Ok(lease) => {

@@ -2,6 +2,50 @@
 
 use super::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StartupActivation {
+    Connect,
+    Renew,
+}
+
+/// Select the safe startup operation for the locally persisted binding.
+///
+/// A Bridge restart must not try to activate an already-active generation
+/// again: the Server treats that as a state conflict.  An active binding can
+/// only be resumed through its generation-bound renewal endpoint.  All other
+/// non-terminal states still use the one-time activation endpoint, while
+/// paused/terminal states remain explicit user recovery operations.
+pub(super) fn startup_activation(
+    response: &serde_json::Value,
+    config: &BridgeConfig,
+    identity: &DeviceIdentity,
+) -> Result<StartupActivation, BridgeError> {
+    let data = response
+        .get("data")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| {
+            BridgeError::ProtocolMessage("binding status response is malformed".into())
+        })?;
+    if required_string(data, "id")? != config.binding_id
+        || required_string(data, "ego_browser_device_id")? != identity.device_id
+        || required_u64(data, "generation")? != config.generation
+        || required_string(data, "task_space_label")? != config.default_task_space
+    {
+        return Err(BridgeError::ProtocolMessage(
+            "binding status does not match the local claim".into(),
+        ));
+    }
+    match required_string(data, "status")? {
+        "active" => Ok(StartupActivation::Renew),
+        "pending_device" | "connecting" | "probing_local_browser" => Ok(StartupActivation::Connect),
+        "expired" => Err(BridgeError::LeaseExpired),
+        "revoked" => Err(BridgeError::Revoked),
+        _ => Err(BridgeError::ProtocolMessage(
+            "binding is not awaiting a Bridge connection; explicit resume is required".into(),
+        )),
+    }
+}
+
 pub(super) fn verify_policy_snapshot(
     store: &CredentialStore,
     config: &BridgeConfig,

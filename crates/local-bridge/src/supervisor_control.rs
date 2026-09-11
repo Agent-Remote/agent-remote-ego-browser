@@ -90,14 +90,13 @@ impl BridgeSupervisor {
     ///
     /// A revoked or expired lease can only be revived through an explicit
     /// generation activation; reconnecting a socket must never bypass that
-    /// state transition.
+    /// state transition. A lease awaiting renewal may reconnect its transport,
+    /// but request admission remains closed until a successful renewal.
     pub fn resume_after_reconnect(&self) -> Result<(), BridgeError> {
         let lease = self.lease.lock().map_err(|_| BridgeError::Unavailable)?;
         match lease.admit(now_seconds(), LeasePolicy::default()) {
-            ego_browser_bridge_protocol::Admission::Allowed => {}
-            ego_browser_bridge_protocol::Admission::RenewalRequired => {
-                return Err(BridgeError::LeaseRenewalRequired)
-            }
+            ego_browser_bridge_protocol::Admission::Allowed
+            | ego_browser_bridge_protocol::Admission::RenewalRequired => {}
             ego_browser_bridge_protocol::Admission::Expired => {
                 return Err(BridgeError::LeaseExpired)
             }
