@@ -4,7 +4,9 @@ use std::fs;
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use ego_browser_bridge_protocol::{
