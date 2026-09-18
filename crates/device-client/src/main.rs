@@ -9,6 +9,7 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::process::Command;
 use std::time::Duration;
 
@@ -24,6 +25,7 @@ use ego_browser_device::{
     CredentialError, CredentialStore, DeviceApiClient, DeviceIdentity, VerifiedLocalPolicy,
     FULL_TRUST_WARNING, TOKEN_MAX_BYTES,
 };
+#[cfg(target_os = "macos")]
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{UnixListener, UnixStream};
