@@ -2,7 +2,7 @@
 
 All notable changes to this repository are recorded here.
 
-## Unreleased
+## 0.1.12 - 2026-09-18
 
 - feat(lifecycle): add idempotent Device ensure, credential refresh, explicit
   local admission, and identity-preserving setup, repair, upgrade, and removal.
