@@ -155,14 +155,16 @@ test "$3" = --locked
 EOF
 chmod 0700 "$work/fake-bin/cargo"
 
-PATH="$work/fake-bin:$PATH" \
-  bash "$same_root/scripts/prepare-release.sh" "$current_version"
+if ! grep -F "## $current_version - " "$prepare_seed/CHANGELOG.md" >/dev/null; then
+  PATH="$work/fake-bin:$PATH" \
+    bash "$same_root/scripts/prepare-release.sh" "$current_version"
+  grep -F "## $current_version - " "$same_root/CHANGELOG.md" >/dev/null
+fi
 for relative in "${mutable_version_files[@]}"; do
   if [ "$relative" != CHANGELOG.md ]; then
     cmp "$prepare_seed/$relative" "$same_root/$relative"
   fi
 done
-grep -F "## $current_version - " "$same_root/CHANGELOG.md" >/dev/null
 if PATH="$work/fake-bin:$PATH" \
   bash "$same_root/scripts/prepare-release.sh" "$current_version" >/dev/null 2>&1; then
   echo "prepare-release accepted a duplicate changelog version" >&2
