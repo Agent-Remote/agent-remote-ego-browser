@@ -1,12 +1,12 @@
 # Release, Upgrade, and Rollback
 
-The source tree currently targets the unpublished `0.1.12` candidate. It is not
-production-ready until its tag-bound release, Sigstore evidence, root
-composition, and artifact-bound canaries have all passed.
+The source tree targets `0.1.13`. Its tag-bound release and Sigstore evidence
+establish component readiness; root composition and artifact-bound canaries
+are separate deployment gates.
 
 ## Evidence profile
 
-Release `0.1.11` targets `community-local-trust`:
+Release `0.1.13` targets `community-local-trust`:
 
 | Claim | Required value |
 | --- | --- |
@@ -18,8 +18,8 @@ Release `0.1.11` targets `community-local-trust`:
 | Apple notarized | `false` |
 | Public distribution | `false` |
 | Production ready | `true` |
-| Learning bundle digest | `6662ad11797f86d721b2d9121049c35b02eff3e71821dc06dfcc190d250788a7` |
-| Learning bundle signing key | `ego-browser-learning-2026-09` |
+| Learning bundle digest | `4d782365e73284c55de320ef91a669c6da5d67650cf066a85c238b152d4f531f` |
+| Learning bundle signing key | `ego-browser-learning-2026-09-v2` |
 | Readiness blockers | `[]` |
 
 The persistent project certificate and its SHA-256 are CI environment inputs;
@@ -27,7 +27,7 @@ they are not generated per build. GitHub Actions signs release assets with
 keyless Sigstore identity tied to `release.yml@refs/tags/vVERSION`, publishes
 SPDX SBOMs and provenance attestations. The workflow publishes a stable release
 only when the generated manifest is production-ready with no blockers;
-otherwise it publishes a prerelease. Release `0.1.11` passed this component gate
+otherwise it publishes a prerelease. Release `0.1.12` passed this component gate
 and its stable GitHub release is published. Root compositions independently pin
 the exact Bridge release and evidence they have certified.
 
@@ -70,8 +70,8 @@ sizes, digests, versions, platforms, release claims, and signing certificate.
 8. Reconfirm full trust, create a fresh generation, and run `--doctor` plus a
    single-user canary. Old permits and requests are never replayed.
 
-Compatibility is exact: wrapper/Bridge/Device Client `0.1.11`, protocol
-`ego-browser-bridge-v1`, Skill `1.2.3`, and local runtime `0.4.7.4`. Unknown or
+Compatibility is exact: wrapper/Bridge/Device Client `0.1.13`, protocol
+`ego-browser-bridge-v1`, Skill `2.0.0`, and local runtime `0.5.0.32`. Unknown or
 partial capabilities fail closed. There is no browser or transport fallback.
 
 ## Rollback
@@ -100,7 +100,7 @@ generation.
 
 ## Remaining rollout gates
 
-Release `0.1.11` has complete `community-local-trust` component evidence. That
+Release `0.1.12` has complete `community-local-trust` component evidence. That
 does not imply Apple notarization, public-distribution approval, or deployment
 to a production environment. Keep the Server capability disabled until the
 exact certified root bundle is installed and verified and the real ego lite

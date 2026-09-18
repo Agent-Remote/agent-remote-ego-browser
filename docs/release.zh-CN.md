@@ -1,11 +1,11 @@
 # 发布、升级与回滚
 
-当前源码树面向尚未发布的 `0.1.12` candidate。只有 tag-bound release、Sigstore evidence、
-root composition 和 artifact-bound canary 全部通过后，才能声明 production-ready。
+当前源码树面向 `0.1.13`。绑定 tag 的 release 和 Sigstore evidence 确定组件就绪状态；
+root composition 和 artifact-bound canary 是独立的部署门禁。
 
 ## 证据 profile
 
-release `0.1.11` 的目标为 `community-local-trust`：
+release `0.1.13` 的目标为 `community-local-trust`：
 
 | 声明 | 必须值 |
 | --- | --- |
@@ -17,15 +17,15 @@ release `0.1.11` 的目标为 `community-local-trust`：
 | Apple notarized | `false` |
 | Public distribution | `false` |
 | Production ready | `true` |
-| Learning bundle digest | `6662ad11797f86d721b2d9121049c35b02eff3e71821dc06dfcc190d250788a7` |
-| Learning bundle signing key | `ego-browser-learning-2026-09` |
+| Learning bundle digest | `4d782365e73284c55de320ef91a669c6da5d67650cf066a85c238b152d4f531f` |
+| Learning bundle signing key | `ego-browser-learning-2026-09-v2` |
 | Readiness blockers | `[]` |
 
 持久项目证书及其 SHA-256 是 CI environment 输入，不会在每次构建时重新生成。GitHub
 Actions 使用绑定到 `release.yml@refs/tags/vVERSION` 的 keyless Sigstore identity 对
 release asset 签名，并发布 SPDX SBOM 与 provenance attestation。只有生成的 manifest
 已 production-ready 且 blocker 为空时，workflow 才发布 stable release；否则发布
-prerelease。`0.1.11` 已通过该组件门禁，其 stable GitHub release 已发布。root composition
+prerelease。`0.1.12` 已通过该组件门禁，其 stable GitHub release 已发布。root composition
 会独立固定其已认证的准确 Bridge release 与证据。
 
 ## 准备发布
@@ -59,8 +59,8 @@ manifest 固定其准确文件名、大小、digest、版本、平台、release 
 8. 再次确认 full trust，创建新 generation，运行 `--doctor` 和单用户 canary；不重放旧
    permit 或 request。
 
-兼容版本是准确约束：wrapper/Bridge/Device Client `0.1.11`、协议
-`ego-browser-bridge-v1`、Skill `1.2.3`、本地 runtime `0.4.7.4`。未知或不完整 capability
+兼容版本是准确约束：wrapper/Bridge/Device Client `0.1.13`、协议
+`ego-browser-bridge-v1`、Skill `2.0.0`、本地 runtime `0.5.0.32`。未知或不完整 capability
 均 fail closed，且不存在浏览器或 transport fallback。
 
 ## 回滚
@@ -83,7 +83,7 @@ ticket、generation 或 request；用户必须重新显式授权。保留终态 
 
 ## 剩余上线门禁
 
-`0.1.11` 已具备完整的 `community-local-trust` 组件证据。这不代表已经通过 Apple notarization、
+`0.1.12` 已具备完整的 `community-local-trust` 组件证据。这不代表已经通过 Apple notarization、
 获准 public distribution，或已部署到生产环境。在安装并验证准确的 certified root bundle、
 且真实 ego lite 单用户 canary 成功前，必须保持 Server capability 关闭。后续 release 也必须
 独立重现已签名的 Site Learning bundle 和全部 readiness 声明，才能作为 stable 发布。

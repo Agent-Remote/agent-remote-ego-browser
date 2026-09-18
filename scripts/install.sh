@@ -9,10 +9,10 @@ DEFAULT_REPOSITORY="Agent-Remote/agent-remote-ego-browser"
 # The community signing certificate is persistent across releases. A rotation
 # deliberately requires an explicit --certificate-sha256 override.
 DEFAULT_CERTIFICATE_SHA256="1b1527d1c0ac6b3a1e95ccd7d4e6462ece9f5a42d2f4d309d09170588a4197e5"
-EGO_LITE_INSTALL_SCRIPT_COMMIT="36053d07001a910cb806a15d42d00fdea1cdea3d"
-EGO_LITE_INSTALL_SCRIPT_SHA256="7a4c307c9a8ee6abae094f7cd497a81992de81e1fc37719fde61c43fd841d057"
+EGO_LITE_INSTALL_SCRIPT_COMMIT="d01be93325c7ea59d41c2ca9f4c59b58b4be4046"
+EGO_LITE_INSTALL_SCRIPT_SHA256="4cbbc9f211aca61244d9ada601c385cabbeba4ec4417b3a8be1819a01cb0221b"
 EGO_LITE_INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/citrolabs/ego-lite/${EGO_LITE_INSTALL_SCRIPT_COMMIT}/skills/ego-browser/scripts/install.sh"
-EXPECTED_RUNTIME_VERSION="0.4.7.4"
+EXPECTED_RUNTIME_VERSION="0.5.0.32"
 
 REPOSITORY="${EGO_BROWSER_REPO:-$DEFAULT_REPOSITORY}"
 VERSION="${EGO_BROWSER_VERSION:-latest}"

@@ -5,15 +5,14 @@
 `agent-remote ego-browser connect`。受管流程会自动发现 Server、凭据、release profile 与证书
 pin，不要求用户复制 token 或 digest。下文中的显式参数仅用于 release 运维、自定义部署和旧版
 客户端。
-源码树中的 `0.1.12` candidate 尚未发布，在签名制品和 root-composition evidence 就绪前必须
-fail closed；下文命令继续指向已发布的 stable release。
+`0.1.13` 组件只有在签名 release 已发布且 root composition 单独认证后，才能在生产环境启用。
 
 ## 前置条件
 
 - macOS 已登录 GUI 用户，且 ego lite 已安装
 - 远端 Claude session 使用符合条件的 Linux `native` 或 `docker_sandbox` runtime backend，
   且 wrapper、Skill、broker mount、身份与 ACL 合同均已验证
-- 官方本地 `ego-browser` runtime `0.4.7.4`
+- 官方本地 `ego-browser` runtime `0.5.0.32`
 - Agent Remote Server 的 HTTPS origin；如果已有 `agent-remote` 登录，可自动复用已保存凭据
 - `cosign`、`python3`、`plutil`、`launchctl`、`codesign` 和 macOS 标准工具
 - release archive、release manifest 及两者的 Sigstore bundle
@@ -27,7 +26,7 @@ fail closed；下文命令继续指向已发布的 stable release。
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.11 --confirm-local-trust
+  bash -s -- --version 0.1.13 --confirm-local-trust
 ```
 
 脚本会先校验 archive 和 manifest，再执行归档内安装器，并由安装器再次完整校验；不会跳过 archive、manifest、Sigstore、证书 pin 或运行时版本校验。首次 ego lite GUI onboarding 必须由当前 macOS 用户完成。若 `agent-remote` 已登录，脚本会自动发现并调用 `agent-remote ego-browser register`，无需输入 token；`--server` 可选，且只在与已配置服务器一致时接受。需要 claim 明确 session 时加 `--session-id` 和 `--confirm-full-trust`；没有精确 session ID 时脚本只注册，不会自动 claim。旧版 CLI/Device Client 会回退到 `--server` 加手动 token。
@@ -36,10 +35,10 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.11.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.11.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.11.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.11.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.13.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.13.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.13.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.13.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```
@@ -123,8 +122,8 @@ token 形式互斥；Device Client 只有收到准确的 paused 响应和下一�
 和提交值一致，随后客户端才清除 active handoff、提交 policy 并保存新 credential。本地提交
 中断时，可使用另一个新用户 token 和同一命令重试。
 
-learning bundle 必须只读、签名正确、hash 完整，并固定到 Skill `1.2.3` 与 runtime
-`0.4.7.4`。
+learning bundle 必须只读、签名正确、hash 完整，并固定到 Skill `2.0.0` 与 runtime
+`0.5.0.32`。
 
 当前没有留存的 learning-bundle private key，无法签发生产 learning bundle，因此
 `production_ready` 保持 false。

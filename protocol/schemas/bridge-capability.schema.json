@@ -27,9 +27,9 @@
   "properties": {
     "bridge_protocol_version": { "const": "ego-browser-bridge-v1" },
     "remote_wrapper_version": { "type": "string", "minLength": 1, "maxLength": 64 },
-    "local_ego_browser_runtime_version": { "const": "0.4.7.4" },
-    "ego_lite_runtime_version": { "const": "0.4.7.4" },
-    "skill_version": { "const": "1.2.3" },
+    "local_ego_browser_runtime_version": { "const": "0.5.0.32" },
+    "ego_lite_runtime_version": { "const": "0.5.0.32" },
+    "skill_version": { "const": "2.0.0" },
     "release_profile": { "enum": ["logic-test", "development-local", "community-local-trust", "developer-id"] },
     "signer_certificate_sha256": { "type": "string", "minLength": 1, "maxLength": 128 },
     "credential_profile": { "enum": ["community_file", "keychain_access_group"] },

@@ -97,7 +97,7 @@ cargo build --quiet --locked \
 
 fake_runtime="$work/local-ego-browser"
 runtime_version_file="$work/runtime-version"
-printf '%s\n' '0.4.7.4' >"$runtime_version_file"
+printf '%s\n' '0.5.0.32' >"$runtime_version_file"
 counter="$work/runtime-count"
 child_pid_file="$work/revoked-descendant-pid"
 takeover_child_pid_file="$work/takeover-descendant-pid"
@@ -625,7 +625,7 @@ PY
     "$identity_sha256"
   test ! -e "$device_home/ego-browser-pending-registration.json"
 
-  printf '%s\n' '0.4.7.4' >"$runtime_version_file"
+  printf '%s\n' '0.5.0.32' >"$runtime_version_file"
   run_managed_setup >"$work/setup-runtime-recovered.json"
   test "$(json_field "$device_home/ego-browser-local-admission.json" state)" = ready
 

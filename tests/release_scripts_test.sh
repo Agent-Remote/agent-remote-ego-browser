@@ -418,7 +418,7 @@ from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
     "version": sys.argv[5],
     "signer_certificate_sha256": sys.argv[4],
-    "local_ego_browser_runtime_version": "0.4.7.4",
+    "local_ego_browser_runtime_version": "0.5.0.32",
     "artifacts": [{
         "name": sys.argv[2],
         "kind": "macos_local_components",
@@ -557,7 +557,7 @@ from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
     "version": sys.argv[5],
     "signer_certificate_sha256": sys.argv[4],
-    "local_ego_browser_runtime_version": "0.4.7.4",
+    "local_ego_browser_runtime_version": "0.5.0.32",
     "artifacts": [{
         "name": sys.argv[2],
         "kind": "macos_local_components",
@@ -568,7 +568,7 @@ PY
 printf '#!/bin/sh\nexit 0\n' >"$probe_bin/cosign"
 printf '%s\n' '#!/bin/sh' \
   'if [ "${1:-}" = "--version" ]; then' \
-  '  printf "%s\n" "ego-browser 0.4.7.4" >&2' \
+  '  printf "%s\n" "ego-browser 0.5.0.32" >&2' \
   '  printf "%s\n" "  chromium 150.0.7871.101" >&2' \
   '  printf "%s\n" "  node v24.18.0" >&2' \
   '  exit 0' \

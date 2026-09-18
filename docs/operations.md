@@ -5,15 +5,15 @@ This is the low-level release, compatibility, and recovery runbook. Ordinary use
 when they are ready to select and authorize one remote session. That managed path discovers the
 Server, credential, release profile, and certificate pin; it does not require users to copy a token
 or digest. The explicit values below are for release operators, custom deployments, and older clients.
-The source-tree `0.1.12` candidate remains unpublished and must fail closed until its signed assets
-and root-composition evidence exist; the commands below continue to name the published stable release.
+The `0.1.13` components require a published, signed release and separately certified root
+composition before production enablement.
 
 ## Prerequisites
 
 - macOS with a logged-in GUI user and ego lite already installed
 - a remote Claude session using an eligible Linux `native` or `docker_sandbox`
   runtime backend with the verified wrapper, Skill, broker mount, identity, and ACL contract
-- the official local `ego-browser` runtime version `0.4.7.4`
+- the official local `ego-browser` runtime version `0.5.0.32`
 - an HTTPS Agent Remote Server origin; an existing `agent-remote` login can supply
   the stored credential automatically
 - `cosign`, `python3`, `plutil`, `launchctl`, `codesign`, and standard macOS tools
@@ -28,7 +28,7 @@ To perform dependency checks, install ego lite when it is missing, and install t
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.11 --confirm-local-trust
+  bash -s -- --version 0.1.13 --confirm-local-trust
 ```
 
 The bootstrap script authenticates the archive and manifest before executing the packaged installer, then invokes that signed installer again; it does not bypass archive, manifest, Sigstore, certificate-pin, or runtime-version checks. The logged-in macOS user must complete the first ego lite GUI onboarding. If `agent-remote` is logged in, the script discovers it and uses `agent-remote ego-browser register` without asking for a token; `--server` is optional and is accepted only when it matches the configured server. Add `--session-id` and `--confirm-full-trust` to claim one exact session; without an exact session ID the script registers only and never guesses a claim. Older CLI/Device Client releases fall back to `--server` plus a manual token.
@@ -37,10 +37,10 @@ The bootstrap script authenticates the archive and manifest before executing the
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.11.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.11.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.11.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.11.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.13.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.13.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.13.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.13.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```
@@ -137,7 +137,7 @@ the active handoff, commits policy, and saves that credential. An interrupted
 local commit can be retried with another fresh user token and the same command.
 
 A learning bundle must be read-only, correctly signed, hash complete, and
-pinned to Skill `1.2.3` and runtime `0.4.7.4`.
+pinned to Skill `2.0.0` and runtime `0.5.0.32`.
 
 No retained learning-bundle private key currently exists, so a production
 learning bundle cannot be issued and `production_ready` remains false.

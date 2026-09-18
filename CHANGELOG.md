@@ -2,6 +2,11 @@
 
 All notable changes to this repository are recorded here.
 
+## 0.1.13 - 2026-09-18
+
+- feat(learning): pin ego-browser Skill 2.0.0 and local runtime 0.5.0.32.
+- security(learning): rotate the Site Learning trust anchor and sign the compatible bundle.
+
 ## 0.1.12 - 2026-09-18
 
 - feat(lifecycle): add idempotent Device ensure, credential refresh, explicit

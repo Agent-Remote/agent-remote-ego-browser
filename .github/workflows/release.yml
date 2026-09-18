@@ -207,7 +207,7 @@ jobs:
           set -euo pipefail
           signing="dist/community-release/package/SIGNING-EVIDENCE.json"
           digest=$(jq -r '.learning_bundle_digest // ""' "$signing")
-          key_id="${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-09}"
+          key_id="${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-09-v2}"
           if [ -n "$digest" ]; then
             [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
             if [ -n "${LEARNING_BUNDLE_DIGEST:-}" ]; then
@@ -308,7 +308,7 @@ jobs:
           if [ -n "${LEARNING_BUNDLE_DIGEST:-}" ]; then
             manifest_args+=(
               --learning-bundle-digest "$LEARNING_BUNDLE_DIGEST"
-              --learning-bundle-key-id "${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-09}"
+              --learning-bundle-key-id "${LEARNING_BUNDLE_KEY_ID:-ego-browser-learning-2026-09-v2}"
             )
           fi
           "${manifest_args[@]}"

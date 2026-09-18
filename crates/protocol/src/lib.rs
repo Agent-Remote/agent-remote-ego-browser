@@ -46,17 +46,17 @@ pub const REMOTE_PLATFORM: &str = "linux";
 /// 本地运行平台。
 pub const LOCAL_PLATFORM: &str = "macos";
 /// Official Skill version installed in the remote runtime.
-pub const SUPPORTED_SKILL_VERSION: &str = "1.2.3";
+pub const SUPPORTED_SKILL_VERSION: &str = "2.0.0";
 /// Exact local ego-browser runtime version validated for this protocol release.
-pub const SUPPORTED_LOCAL_RUNTIME_VERSION: &str = "0.4.7.4";
+pub const SUPPORTED_LOCAL_RUNTIME_VERSION: &str = "0.5.0.32";
 /// Reviewed upstream commit that supplies the Skill and installer.
-pub const EGO_LITE_INSTALLER_COMMIT: &str = "36053d07001a910cb806a15d42d00fdea1cdea3d";
+pub const EGO_LITE_INSTALLER_COMMIT: &str = "d01be93325c7ea59d41c2ca9f4c59b58b4be4046";
 /// Reviewed upstream installer digest.
 pub const EGO_LITE_INSTALLER_SHA256: &str =
-    "7a4c307c9a8ee6abae094f7cd497a81992de81e1fc37719fde61c43fd841d057";
+    "4cbbc9f211aca61244d9ada601c385cabbeba4ec4417b3a8be1819a01cb0221b";
 /// Reviewed official Skill tree digest.
 pub const SUPPORTED_SKILL_TREE_SHA256: &str =
-    "262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c";
+    "a45cc7fcbea45a6f6222faf83c891b0fd22955193699dd99c9e40b0c0b4a0741";
 /// Cargo repository metadata used to derive release URLs.
 pub const RELEASE_REPOSITORY_URL: &str = env!("CARGO_PKG_REPOSITORY");
 /// Project self-signed release profile.
@@ -65,7 +65,7 @@ pub const COMMUNITY_PROFILE_ID: &str = "community-local-trust";
 pub const TRUSTED_COMMUNITY_SIGNER_CERTIFICATE_SHA256: &str =
     "1b1527d1c0ac6b3a1e95ccd7d4e6462ece9f5a42d2f4d309d09170588a4197e5";
 /// Previous profile replaced by this source candidate.
-pub const REPLACED_COMMUNITY_PROFILE: &str = "community-local-trust@0.1.11";
+pub const REPLACED_COMMUNITY_PROFILE: &str = "community-local-trust@0.1.12";
 /// Server policy required by the signed release profile.
 pub const ADMISSION_POLICY_REF: &str = "server-policy:ego-browser-v1";
 /// Placeholder resolved to the user's authenticated control-plane origin.

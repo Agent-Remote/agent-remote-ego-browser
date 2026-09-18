@@ -50,8 +50,8 @@ fn create_bundle() -> TestBundle {
     let key = SigningKey::generate(&mut OsRng);
     let mut manifest = LearningBundleManifest {
         bundle_version: "2026.09.1".into(),
-        skill_version: "1.2.3".into(),
-        local_ego_browser_runtime_version: "0.4.7.4".into(),
+        skill_version: "2.0.0".into(),
+        local_ego_browser_runtime_version: "0.5.0.32".into(),
         protocol_versions: vec![crate::PROTOCOL_VERSION.into()],
         files: vec![LearningFile {
             path: "learnings/example/note.md".into(),
@@ -88,15 +88,15 @@ fn verifies_signed_read_only_bundle_and_versions() {
     let verified =
         verify_learning_bundle_details(&bundle.root, &bundle.key.verifying_key().to_bytes())
             .expect("verified bundle");
-    assert_eq!(verified.skill_version, "1.2.3");
-    assert_eq!(verified.local_ego_browser_runtime_version, "0.4.7.4");
+    assert_eq!(verified.skill_version, "2.0.0");
+    assert_eq!(verified.local_ego_browser_runtime_version, "0.5.0.32");
     assert!(verified.digest.starts_with("sha256:"));
     assert_eq!(
         verify_learning_bundle(
             &bundle.root,
             &bundle.key.verifying_key().to_bytes(),
-            "1.2.3",
-            "0.4.7.4",
+            "2.0.0",
+            "0.5.0.32",
         )
         .expect("compatible bundle"),
         verified.digest
@@ -173,7 +173,7 @@ fn rejects_wrong_signing_key_and_version() {
             &bundle.root,
             &bundle.key.verifying_key().to_bytes(),
             "9.9.9",
-            "0.4.7.4"
+            "0.5.0.32"
         ),
         Err(LearningBundleError::VersionMismatch)
     ));

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 bundle=""
-expected_key_id="ego-browser-learning-2026-09"
+expected_key_id="ego-browser-learning-2026-09-v2"
 public_key_file=""
 
 usage() {

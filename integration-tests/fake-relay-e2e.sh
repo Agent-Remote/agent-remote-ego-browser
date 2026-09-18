@@ -24,7 +24,7 @@ peer_loss_pid_file="$work/peer-loss-descendant-pid"
 cat > "$fake_runtime" <<EOF
 #!/bin/sh
 if [ "\${1:-}" = "--version" ]; then
-  printf '%s\n' '{"ego_browser_version":"0.4.7.4","ego_lite_version":"0.4.7.4"}'
+  printf '%s\n' '{"ego_browser_version":"0.5.0.32","ego_lite_version":"0.5.0.32"}'
   exit 0
 fi
 test "\${1:-}" = "nodejs" || exit 64

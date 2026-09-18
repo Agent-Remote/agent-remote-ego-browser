@@ -16,10 +16,10 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 FILE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,254}$")
 COMPONENT = "agent-remote-ego-browser"
 PROTOCOL = "ego-browser-bridge-v1"
-SKILL_VERSION = "1.2.3"
-LOCAL_RUNTIME_VERSION = "0.4.7.4"
+SKILL_VERSION = "2.0.0"
+LOCAL_RUNTIME_VERSION = "0.5.0.32"
 READINESS_BLOCKER = "learning_bundle_signing_private_key_unavailable"
-LEARNING_KEY_ID = "ego-browser-learning-2026-09"
+LEARNING_KEY_ID = "ego-browser-learning-2026-09-v2"
 # Keep the blocked release contract explicit for reviewers and compatibility checks:
 # The blocked JSON shape is `"production_ready": false` until a verified bundle exists.
 BLOCKED_PRODUCTION_READY = False

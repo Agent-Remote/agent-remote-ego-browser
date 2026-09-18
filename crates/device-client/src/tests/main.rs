@@ -378,7 +378,7 @@ fn root_release_manifest(version: &str, replaces_profile: &str) -> serde_json::V
                 "hardened_runtime": true,
                 "issued_at": "2026-09-14T00:00:00Z",
                 "learning_bundle_digest": "e".repeat(64),
-                "learning_bundle_signing_key_id": "ego-browser-learning-2026-09",
+                "learning_bundle_signing_key_id": "ego-browser-learning-2026-09-v2",
                 "local_ego_browser_runtime_version": SUPPORTED_LOCAL_RUNTIME_VERSION,
                 "nested_signatures_verified": true,
                 "outbound_policy": "application-enforced",
@@ -468,7 +468,7 @@ fn signing_evidence_schema_one_is_validated_against_the_builtin_pin() {
         "outbound_policy": "application-enforced",
         "credential_profile": "community_file",
         "learning_bundle_digest": "a".repeat(64),
-        "learning_bundle_signing_key_id": "ego-browser-learning-2026-09"
+        "learning_bundle_signing_key_id": "ego-browser-learning-2026-09-v2"
     });
     fs::write(&path, serde_json::to_vec(&evidence).expect("evidence")).expect("write evidence");
     let parsed = validate_release_artifact(&path).expect("validated signing evidence");
