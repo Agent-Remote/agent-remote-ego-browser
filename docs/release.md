@@ -1,5 +1,9 @@
 # Release, Upgrade, and Rollback
 
+The source tree currently targets the unpublished `0.1.12` candidate. It is not
+production-ready until its tag-bound release, Sigstore evidence, root
+composition, and artifact-bound canaries have all passed.
+
 ## Evidence profile
 
 Release `0.1.11` targets `community-local-trust`:
@@ -34,7 +38,8 @@ scripts/prepare-release.sh NEXT_VERSION
 scripts/run-quality-checks.sh
 ```
 
-The prepare script requires a strictly newer semantic version. It updates the
+The prepare script rejects older versions and also accepts a pre-versioned,
+untagged candidate. It updates the
 workspace version, all repository package entries in `Cargo.lock`, `VERSION`,
 the protocol capability vector, and every English/Chinese compatibility and
 installer example owned by this repository. It rejects stale source values and

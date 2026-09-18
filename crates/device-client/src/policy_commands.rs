@@ -30,7 +30,14 @@ pub(super) async fn allowlist(
                 );
             }
             let binding = option(&args, "--binding")?;
-            let generation_option = option(&args, "--generation")?;
+            let explicit_generation = option(&args, "--binding-generation")?;
+            let legacy_generation = option(&args, "--generation")?;
+            if let (Some(explicit), Some(legacy)) = (&explicit_generation, &legacy_generation) {
+                if explicit != legacy {
+                    return Err("--binding-generation and --generation disagree".into());
+                }
+            }
+            let generation_option = explicit_generation.or(legacy_generation);
             let has_policy_auth =
                 has_option(&args, "--token") || has_option(&args, "--signer-certificate-sha256");
             if binding.is_some() && has_policy_auth {
@@ -39,18 +46,21 @@ pub(super) async fn allowlist(
                 );
             }
             if binding.is_none() && generation_option.is_some() {
-                return Err("--generation requires --binding".into());
+                return Err("--binding-generation requires --binding".into());
             }
             let policy_transaction = store.begin_policy_update()?;
-            let runtime = probe_runtime()?;
-            store.load_policy(
-                Some(SUPPORTED_SKILL_VERSION),
-                Some(&runtime.ego_browser_version),
-            )?;
+            let runtime = probe_runtime().map_err(|_| CredentialError::CompatibilityMismatch)?;
+            store
+                .load_policy(
+                    Some(SUPPORTED_SKILL_VERSION),
+                    Some(&runtime.ego_browser_version),
+                )
+                .map_err(map_local_policy_error)?;
             let roots = positional_paths(
                 &args[1..],
                 &[
                     "--binding",
+                    "--binding-generation",
                     "--generation",
                     "--token",
                     "--signer-certificate-sha256",
@@ -60,18 +70,21 @@ pub(super) async fn allowlist(
                 return Err("at least one allowlist root is required".into());
             }
             let update = policy_transaction.prepare_allowlist_update(roots)?;
-            let verified = update.policy().verify(
-                Some(SUPPORTED_SKILL_VERSION),
-                Some(&runtime.ego_browser_version),
-            )?;
+            let verified = update
+                .policy()
+                .verify(
+                    Some(SUPPORTED_SKILL_VERSION),
+                    Some(&runtime.ego_browser_version),
+                )
+                .map_err(|_| CredentialError::CompatibilityMismatch)?;
             if let Some(binding) = binding {
                 let generation = generation_option
-                    .ok_or("--generation is required with --binding")?
+                    .ok_or("--binding-generation is required with --binding")?
                     .parse::<u64>()?;
                 let credential = store.load(now())?;
                 let identity = store.load_identity(
                     credential.device_id.clone(),
-                    "community-local-trust".into(),
+                    credential.release_profile.clone(),
                     credential.credential_profile.clone(),
                 )?;
                 let active = match store.load_active_binding(&credential.device_id) {
@@ -163,11 +176,14 @@ pub(super) async fn learning(
             }
             let policy_transaction = store.begin_policy_update()?;
             let update = policy_transaction.prepare_learning_bundle_update(roots[0].clone())?;
-            let runtime = probe_runtime()?;
-            let verified = update.policy().verify(
-                Some(SUPPORTED_SKILL_VERSION),
-                Some(&runtime.ego_browser_version),
-            )?;
+            let runtime = probe_runtime().map_err(|_| CredentialError::CompatibilityMismatch)?;
+            let verified = update
+                .policy()
+                .verify(
+                    Some(SUPPORTED_SKILL_VERSION),
+                    Some(&runtime.ego_browser_version),
+                )
+                .map_err(|_| CredentialError::CompatibilityMismatch)?;
             let credential =
                 synchronize_registered_policy(store, &args, &runtime, &verified).await?;
             if credential.is_some() {

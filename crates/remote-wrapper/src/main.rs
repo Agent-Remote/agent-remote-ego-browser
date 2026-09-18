@@ -8,8 +8,8 @@ use ego_browser_bridge_protocol::{
     aad_for_outer, canonical_json, decode_b64url, encode_b64url, parse_strict_json, read_frame,
     write_frame, BridgeCapability, ConcurrencyMode, Direction, InnerExecuteRequest,
     InnerExecuteResponse, InnerMessageType, OuterEnvelope, OuterMessageType, RequestPermit,
-    RequestScope, SessionCipher, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_PIXELS, MAX_EXECUTE_TIMEOUT_MS,
-    MAX_SCRIPT_BYTES, MAX_STDERR_BYTES, MAX_STDOUT_BYTES,
+    RequestScope, SessionCipher, INNER_PROTOCOL_VERSION, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_PIXELS,
+    MAX_EXECUTE_TIMEOUT_MS, MAX_SCRIPT_BYTES, MAX_STDERR_BYTES, MAX_STDOUT_BYTES, PROTOCOL_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use tokio::io::{stdin, stdout, AsyncWriteExt};
@@ -118,7 +118,7 @@ async fn execute(mut args: impl Iterator<Item = String>) -> Result<(), WrapperEr
     let requested_scope =
         RequestScope::normalized(Some(mode), task_space.as_deref(), tab_scope.as_deref());
     let request = PermitRequest {
-        protocol: "ego-browser-bridge-v1",
+        protocol: PROTOCOL_VERSION,
         message_type: "permit_request",
         startup_nonce: &startup_nonce,
         script_bytes: script.len(),
@@ -176,7 +176,7 @@ async fn execute(mut args: impl Iterator<Item = String>) -> Result<(), WrapperEr
         canonical_json(&inner).map_err(|error| WrapperError::Protocol(error.to_string()))?;
     let cipher = SessionCipher::new(&key);
     let mut envelope = OuterEnvelope {
-        protocol: "ego-browser-bridge-v1".to_owned(),
+        protocol: PROTOCOL_VERSION.to_owned(),
         channel: "ego_browser_bridge".to_owned(),
         relay_binding_kind: "ego_browser".to_owned(),
         message_type: OuterMessageType::Execute,
@@ -219,7 +219,7 @@ fn inner_request_from_permit(
     permit: &RequestPermit,
 ) -> Result<InnerExecuteRequest, WrapperError> {
     Ok(InnerExecuteRequest {
-        protocol: "ego-browser-bridge-v1-inner".to_owned(),
+        protocol: INNER_PROTOCOL_VERSION.to_owned(),
         message_type: InnerMessageType::Execute,
         script: String::from_utf8(script)
             .map_err(|_| WrapperError::Protocol("script must be UTF-8".into()))?,
@@ -243,7 +243,7 @@ async fn control_command(command: &str) -> Result<(), WrapperError> {
     }
     let payload = serde_json::json!({"command": command});
     let request = BrokerCommand {
-        protocol: "ego-browser-bridge-v1",
+        protocol: PROTOCOL_VERSION,
         message_type: command.to_owned(),
         startup_nonce: &startup_nonce,
         payload: &payload,
@@ -255,7 +255,7 @@ async fn control_command(command: &str) -> Result<(), WrapperError> {
         .ok_or(WrapperError::Disconnected)?;
     let response: BrokerResponse =
         parse_strict_json(&frame).map_err(|error| WrapperError::Protocol(error.to_string()))?;
-    if response.protocol != "ego-browser-bridge-v1" || response.status != "ok" {
+    if response.protocol != PROTOCOL_VERSION || response.status != "ok" {
         if let Some(error) = response.error {
             return Err(WrapperError::Status(error));
         }
@@ -312,7 +312,7 @@ async fn read_bounded_script() -> Result<Vec<u8>, WrapperError> {
 }
 
 fn validate_permit_response(response: &PermitResponse) -> Result<(), WrapperError> {
-    if response.protocol != "ego-browser-bridge-v1"
+    if response.protocol != PROTOCOL_VERSION
         || response.message_type != "permit_response"
         || response.status != "ok"
     {
@@ -367,7 +367,7 @@ fn decode_response(
         .map_err(|error| WrapperError::Protocol(error.to_string()))?;
     let response: InnerExecuteResponse =
         parse_strict_json(&plaintext).map_err(|error| WrapperError::Protocol(error.to_string()))?;
-    if response.protocol != "ego-browser-bridge-v1-inner"
+    if response.protocol != INNER_PROTOCOL_VERSION
         || response.message_type != InnerMessageType::ExecuteResult
     {
         return Err(WrapperError::Protocol("invalid inner response".into()));

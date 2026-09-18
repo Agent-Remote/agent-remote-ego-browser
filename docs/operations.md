@@ -1,4 +1,12 @@
-# Installation and Operations
+# Installation and Operations (Advanced)
+
+This is the low-level release, compatibility, and recovery runbook. Ordinary users first log in with
+`agent-remote`, run `agent-remote ego-browser setup`, and run `agent-remote ego-browser connect` only
+when they are ready to select and authorize one remote session. That managed path discovers the
+Server, credential, release profile, and certificate pin; it does not require users to copy a token
+or digest. The explicit values below are for release operators, custom deployments, and older clients.
+The source-tree `0.1.12` candidate remains unpublished and must fail closed until its signed assets
+and root-composition evidence exist; the commands below continue to name the published stable release.
 
 ## Prerequisites
 
@@ -14,7 +22,7 @@
 
 The installer does not install, modify, or remove ego lite.
 
-## One-command bootstrap
+## Advanced compatibility bootstrap
 
 To perform dependency checks, install ego lite when it is missing, and install the Bridge in one run:
 
@@ -48,14 +56,14 @@ Use `--ego-browser /absolute/path/to/ego-browser` when it is not on `PATH`, or
 6. clears and rechecks quarantine, then verifies the installed release again;
 7. writes the protected certificate pin, atomically changes `current`, and installs user launch agents.
 
-## Register and bind
+## Register and bind (advanced compatibility)
 
 ```sh
 current="$HOME/Library/Application Support/Agent Remote Ego Browser/current"
 
 "$current/bin/ego-browser-device" register \
   --server https://agent-remote.example.com \
-  --token USER_REGISTRATION_TOKEN \
+  --token-stdin \
   --signer-certificate-sha256 EXPECTED_64_HEX_DIGEST
 
 "$current/bin/ego-browser-device" candidates
@@ -63,8 +71,10 @@ current="$HOME/Library/Application Support/Agent Remote Ego Browser/current"
 "$current/bin/ego-browser-device" status BINDING_ID
 ```
 
-Current clients pass registration tokens over stdin and the tokens should be
-short-lived; older clients may still require the legacy command-line form.
+Provide the short-lived registration token on the command's stdin through an
+owner-only secret source. Current clients accept this protected transport;
+older clients that require the legacy command-line form are restricted to
+isolated compatibility maintenance.
 Device Client output never prints the stored replacement credential or private
 key. Claim always requires an exact candidate and the explicit full-trust
 confirmation. The Server derives
@@ -76,7 +86,7 @@ Rotate the device signing and encryption keys in place with a fresh user token:
 
 ```sh
 "$current/bin/ego-browser-device" device-rotate \
-  --token USER_REGISTRATION_TOKEN \
+  --token-stdin \
   --signer-certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm
 ```

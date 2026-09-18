@@ -145,24 +145,28 @@ current_version = version_source.strip()
 parse_semver(current_version)
 if version_source != current_version + "\n":
     raise SystemExit("VERSION must contain exactly one canonical semantic version")
-if compare_semver(version, current_version) <= 0:
+comparison = compare_semver(version, current_version)
+if comparison < 0:
     raise SystemExit(
-        f"release version must be newer than current VERSION ({current_version})"
+        f"release version must not be older than current VERSION ({current_version})"
     )
+already_prepared = comparison == 0
 
 updates: dict[Path, str] = {}
 
 cargo_path, cargo = read_source("Cargo.toml")
-tomllib.loads(cargo)
+if tomllib.loads(cargo)["workspace"]["package"]["version"] != current_version:
+    raise SystemExit("workspace package version does not match VERSION")
 cargo_pattern = re.compile(
     rf'(?m)^(\[workspace\.package\]\nversion = "){re.escape(current_version)}("$)'
 )
-updates[cargo_path] = replace_exact(
-    cargo,
-    cargo_pattern,
-    rf"\g<1>{version}\g<2>",
-    "workspace package version",
-)
+if not already_prepared:
+    updates[cargo_path] = replace_exact(
+        cargo,
+        cargo_pattern,
+        rf"\g<1>{version}\g<2>",
+        "workspace package version",
+    )
 
 lock_path, lock = read_source("Cargo.lock")
 tomllib.loads(lock)
@@ -172,24 +176,30 @@ for package in repository_packages:
         rf'(\[\[package\]\]\nname = "{re.escape(package)}"\nversion = ")'
         rf'{re.escape(current_version)}("\n)'
     )
-    updated_lock = replace_exact(
-        updated_lock,
-        lock_pattern,
-        rf"\g<1>{version}\g<2>",
-        f"Cargo.lock package {package}",
-    )
+    if already_prepared:
+        if len(lock_pattern.findall(updated_lock)) != 1:
+            raise SystemExit(f"Cargo.lock package {package} is stale or duplicated")
+    else:
+        updated_lock = replace_exact(
+            updated_lock,
+            lock_pattern,
+            rf"\g<1>{version}\g<2>",
+            f"Cargo.lock package {package}",
+        )
 tomllib.loads(updated_lock)
-updates[lock_path] = updated_lock
+if not already_prepared:
+    updates[lock_path] = updated_lock
 
 for relative in text_version_files:
     path, source = read_source(relative)
     count = source.count(current_version)
     if count == 0:
         raise SystemExit(f"release version source is stale or missing: {relative}")
-    updated = source.replace(current_version, version)
-    if current_version in updated:
-        raise SystemExit(f"release version source remained stale: {relative}")
-    updates[path] = updated
+    if not already_prepared:
+        updated = source.replace(current_version, version)
+        if current_version in updated:
+            raise SystemExit(f"release version source remained stale: {relative}")
+        updates[path] = updated
 
 vector_path = root / "protocol/test-vectors/ego-browser-bridge-v1.json"
 vector_before = json.loads(
@@ -197,7 +207,10 @@ vector_before = json.loads(
 )
 if vector_before.get("capability", {}).get("remote_wrapper_version") != current_version:
     raise SystemExit("protocol capability vector version is stale or missing")
-vector_after = json.loads(updates[vector_path], object_pairs_hook=reject_duplicate_pairs)
+vector_after = json.loads(
+    vector_path.read_text(encoding="utf-8") if already_prepared else updates[vector_path],
+    object_pairs_hook=reject_duplicate_pairs,
+)
 if vector_after.get("capability", {}).get("remote_wrapper_version") != version:
     raise SystemExit("protocol capability vector version was not updated")
 
@@ -235,7 +248,8 @@ else:
             + release_section
             + changelog[first_heading.start() :]
         )
-updates[version_path] = version + "\n"
+if not already_prepared:
+    updates[version_path] = version + "\n"
 
 for path, content in updates.items():
     temporary = path.with_name(f".{path.name}.prepare-release-{os.getpid()}")

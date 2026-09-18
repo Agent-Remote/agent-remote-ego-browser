@@ -17,6 +17,10 @@ The official remote `ego-browser` Skill keeps its normal heredoc interface. Its 
 
 ## Release Status
 
+This source tree is the unpublished `0.1.12` candidate. It must be treated as
+`release_published=false` and `production_ready=false` until the tag-bound
+workflow, Sigstore evidence, root composition, and canaries are complete.
+
 The stable Bridge `0.1.11` release records `production_ready=true`,
 `release_published=true`, and `readiness_blockers=[]`. Root compositions
 independently pin the exact Bridge release they have certified.
@@ -68,7 +72,7 @@ Each request uses an X25519-wrapped ChaCha20-Poly1305 session key. Routing ident
 
 | Surface | Required value |
 | --- | --- |
-| Bridge, Device Client, remote wrapper | `0.1.11` |
+| Bridge, Device Client, remote wrapper source candidate | `0.1.12` |
 | Protocol | `ego-browser-bridge-v1` |
 | Official Skill | `1.2.3` |
 | Local `ego-browser` runtime | `0.4.7.4` |
@@ -78,9 +82,27 @@ Each request uses an X25519-wrapped ChaCha20-Poly1305 session key. Routing ident
 
 Compatibility is exact. Unknown, partial, or stale capabilities fail closed; there is no fallback to a remote browser, GUI-control channel, raw CDP transport, or automatically selected session.
 
-## Install
+## Managed lifecycle
 
-Install the stable `0.1.11` macOS release from its archive, strict aggregate manifest, both Sigstore bundles, and an independently obtained signing-certificate SHA-256:
+After installing the current `agent-remote` CLI and logging in, the ordinary macOS flow is:
+
+```sh
+agent-remote ego-browser setup
+agent-remote ego-browser connect
+```
+
+`setup` discovers the configured Server, stored credential, verified release profile, and certificate
+pin, then ensures the existing Device identity without claiming a session. `connect` separately lists
+eligible sessions and requires an explicit full-trust confirmation. Ordinary users do not copy a
+Server URL, registration token, Device ID, binding generation, or certificate digest.
+
+Daily lifecycle operations are `status`, `repair`, `upgrade`, `pause`, `resume`, `stop`, `remove`, and
+`forget-this-mac`. Pause retains a recoverable binding; stop is terminal and requires a fresh
+`connect`. A normal Bridge upgrade preserves the Device ID and key generation.
+
+## Advanced release installation
+
+The manual archive command is a low-level release/operator path. Install the stable `0.1.11` macOS release from its archive, strict aggregate manifest, both Sigstore bundles, and an independently obtained signing-certificate SHA-256:
 
 ```sh
 ./installer/install-macos.sh \
@@ -96,16 +118,16 @@ The installer verifies readiness claims, tag-bound Sigstore identities, artifact
 
 See [Installation and operations](docs/operations.md) for prerequisites, registration, policy setup, observability, recovery, and uninstall details.
 
-### One-command bootstrap
+### Advanced compatibility bootstrap
 
-From a terminal running as the logged-in macOS user, the bootstrap script performs dependency checks, installs ego lite when it is missing, verifies the signed release inputs, and installs the Bridge:
+The compatibility bootstrap performs dependency checks, installs ego lite when it is missing, verifies the signed release inputs, and installs the Bridge:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
   bash -s -- --version 0.1.11 --confirm-local-trust
 ```
 
-To also register the Device Client and claim one exact remote session in the same run:
+Older clients and custom automation may also register the Device Client and claim one exact remote session in the same run:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
@@ -118,14 +140,14 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
     --confirm-full-trust
 ```
 
-When the `agent-remote` CLI is already logged in, the bootstrap automatically discovers it and delegates registration to `agent-remote ego-browser register`; the configured server and stored credential are reused, and the token is passed only over stdin. In that case omit `--server` and `--token`:
+In this compatibility bootstrap, a logged-in `agent-remote` CLI can delegate registration to the advanced `agent-remote ego-browser register` entrypoint; the configured server and stored credential are reused, and the token is passed only over stdin. In that case omit `--server` and `--token`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
   bash -s -- --version 0.1.11 --confirm-local-trust
 ```
 
-Add `--session-id EXACT_TOOL_SESSION_ID --confirm-full-trust` when an exact session should also be claimed. The script installs a missing Homebrew `cosign`, authenticates the release archive and manifest before executing any packaged installer code, and verifies a pinned official ego lite installer. The first GUI onboarding must still be completed by the user; the script never guesses a candidate session. If an older CLI or Device Client is detected, it falls back to the explicit `--server`/`--token` flow. Use a short-lived registration token and do not put it in shell history or chat logs.
+Add `--session-id EXACT_TOOL_SESSION_ID --confirm-full-trust` only for explicit compatibility automation. The script installs a missing Homebrew `cosign`, authenticates the release archive and manifest before executing any packaged installer code, and verifies a pinned official ego lite installer. The first GUI onboarding must still be completed by the user; the script never guesses a candidate session. If an older CLI or Device Client is detected, it falls back to the explicit `--server`/`--token` flow. That argv-based fallback is restricted to isolated legacy maintenance; use a short-lived registration token and do not put it in shell history or chat logs.
 
 The script embeds the current persistent project certificate pin. After a certificate rotation or when using a custom repository, pass `--certificate-sha256`. See the full option list with:
 
@@ -133,9 +155,9 @@ The script embeds the current persistent project certificate pin. After a certif
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | bash -s -- --help
 ```
 
-## Commands
+## Advanced compatibility commands
 
-Register the independent Device Client and bind one exact running tool session:
+The managed `setup` and `connect` flow above is the default. For low-level diagnostics, custom releases, or older automation, register the independent Device Client and bind one exact running tool session with:
 
 ```sh
 ego-browser-device register \
@@ -148,7 +170,7 @@ ego-browser-device claim EXACT_TOOL_SESSION_ID --confirm
 ego-browser-device status BINDING_ID
 ```
 
-After `agent-remote login`, the same registration can reuse the CLI credential store:
+The advanced registration entrypoint can reuse the CLI credential store after `agent-remote login`:
 
 ```sh
 agent-remote ego-browser register \

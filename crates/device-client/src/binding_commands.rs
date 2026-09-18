@@ -17,19 +17,18 @@ pub(super) async fn claim(
     let (_, policy) = load_verified_policy(store)?;
     let identity = store.load_identity(
         credential.device_id.clone(),
-        "community-local-trust".into(),
+        credential.release_profile.clone(),
         credential.credential_profile.clone(),
     )?;
-    let result = DeviceApiClient::with_identity(&credential, identity)?
+    let result = DeviceApiClient::with_identity(&credential, identity.clone())?
         .claim(serde_json::json!({
             "tool_session_id": session,
-            // The device identity is loaded from the owner-only credential store;
-            // callers cannot select or substitute a different device on the CLI.
+            // The owner-only store fixes the Device identity.
             "ego_browser_device_id": credential.device_id,
             "authorization_mode": "ego_browser_script_full_trust",
             "authorization_policy_version": 1,
-            "release_profile": "community-local-trust",
-            "credential_profile": "community_file",
+            "release_profile": identity.release_profile.clone(),
+            "credential_profile": identity.credential_profile.clone(),
             "remote_platform": "linux",
             "local_platform": "macos",
             "device_capabilities": policy.capabilities(),
@@ -51,7 +50,7 @@ pub(super) async fn status(
     let credential = store.load(now())?;
     let identity = store.load_identity(
         credential.device_id.clone(),
-        "community-local-trust".into(),
+        credential.release_profile.clone(),
         credential.credential_profile.clone(),
     )?;
     let client = DeviceApiClient::with_identity(&credential, identity)?;
@@ -71,10 +70,12 @@ pub(super) async fn device_revoke(
     if args.as_slice() != ["--confirm"] {
         return Err("usage: ego-browser-device device-revoke --confirm".into());
     }
+    // Close locally before the request so an outage cannot preserve execution.
+    store.close_local_admission()?;
     let credential = store.load(now())?;
     let identity = store.load_identity(
         credential.device_id.clone(),
-        "community-local-trust".into(),
+        credential.release_profile.clone(),
         credential.credential_profile.clone(),
     )?;
     let result = DeviceApiClient::with_identity(&credential, identity)?
@@ -102,16 +103,28 @@ pub(super) async fn lifecycle(
     args: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let binding = args.first().ok_or("binding ID is required")?;
-    let generation: u64 = option(&args, "--generation")?
-        .ok_or("--generation is required")?
+    let binding_generation = option(&args, "--binding-generation")?;
+    let legacy_generation = option(&args, "--generation")?;
+    if let (Some(explicit), Some(legacy)) = (&binding_generation, &legacy_generation) {
+        if explicit != legacy {
+            return Err("--binding-generation and --generation disagree".into());
+        }
+    }
+    let generation: u64 = binding_generation
+        .or(legacy_generation)
+        .ok_or("--binding-generation is required")?
         .parse()?;
     let credential = store.load(now())?;
     let identity = store.load_identity(
         credential.device_id.clone(),
-        "community-local-trust".into(),
+        credential.release_profile.clone(),
         credential.credential_profile.clone(),
     )?;
     let client = DeviceApiClient::with_identity(&credential, identity)?;
+    // Direct callers must also close execution before reducing privilege.
+    if matches!(command, "pause" | "stop" | "revoke") {
+        store.close_local_admission()?;
+    }
     let resumed_task_space = if command == "resume" {
         Some(
             store
@@ -143,7 +156,10 @@ pub(super) async fn lifecycle(
         _ => unreachable!(),
     };
     match command {
-        "stop" | "revoke" => store.clear_active_binding()?,
+        "pause" => persist_paused_binding(store, &credential.device_id, &result)?,
+        "stop" | "revoke" => {
+            store.clear_active_binding()?;
+        }
         "resume" => persist_active_binding(
             store,
             &credential.device_id,
@@ -164,14 +180,49 @@ pub(super) fn persist_active_binding(
     expected_task_space: &str,
     response: &serde_json::Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let active_binding = active_binding_from_response(device_id, expected_task_space, response)?;
+    store.save_active_binding(&active_binding)?;
+    // Open admission only after the handoff is durable.
+    if let Err(error) = store.open_local_admission(&active_binding) {
+        let _ = store.clear_active_binding();
+        let _ = store.close_local_admission();
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+fn persist_paused_binding(
+    store: &CredentialStore,
+    device_id: &str,
+    response: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let existing = store.load_active_binding(device_id)?;
+    let active_binding =
+        active_binding_from_response(device_id, &existing.task_space_label, response)?;
+    if response
+        .pointer("/data/status")
+        .and_then(|value| value.as_str())
+        != Some("paused")
+    {
+        return Err("pause response did not confirm paused status".into());
+    }
+    store.save_active_binding(&active_binding)?;
+    store.close_local_admission()?;
+    Ok(())
+}
+
+fn active_binding_from_response(
+    device_id: &str,
+    expected_task_space: &str,
+    response: &serde_json::Value,
+) -> Result<ActiveBinding, Box<dyn std::error::Error>> {
     let binding_id = response
         .pointer("/data/id")
         .and_then(|value| value.as_str())
         .ok_or("binding response did not include an ID")?;
-    let generation = response
-        .pointer("/data/generation")
-        .and_then(|value| value.as_u64())
-        .ok_or("binding response did not include a generation")?;
+    let generation =
+        explicit_or_legacy_response_u64(response, "/data/binding_generation", "/data/generation")
+            .ok_or("binding response did not include a binding generation")?;
     let authorization_mode = response
         .pointer("/data/authorization_mode")
         .and_then(|value| value.as_str())
@@ -190,7 +241,7 @@ pub(super) fn persist_active_binding(
     {
         return Err("binding response did not match the local device identity".into());
     }
-    store.save_active_binding(&ActiveBinding {
+    Ok(ActiveBinding {
         version: 1,
         binding_id: binding_id.to_owned(),
         generation,
@@ -198,6 +249,23 @@ pub(super) fn persist_active_binding(
         task_space_label: task_space_label.to_owned(),
         authorization_mode: authorization_mode.to_owned(),
         user_confirmation: true,
-    })?;
-    Ok(())
+    })
+}
+
+fn explicit_or_legacy_response_u64(
+    response: &serde_json::Value,
+    explicit_path: &str,
+    legacy_path: &str,
+) -> Option<u64> {
+    let explicit = response
+        .pointer(explicit_path)
+        .and_then(serde_json::Value::as_u64);
+    let legacy = response
+        .pointer(legacy_path)
+        .and_then(serde_json::Value::as_u64);
+    match (explicit, legacy) {
+        (Some(left), Some(right)) if left != right => None,
+        (Some(value), _) | (_, Some(value)) => Some(value),
+        _ => None,
+    }
 }

@@ -171,6 +171,64 @@ async fn device_peer_eof_revokes_admission_and_clears_handoff() {
 }
 
 #[tokio::test]
+async fn intentional_admission_close_revokes_supervisor_without_remote_stop() {
+    let (_temporary, store) = test_store();
+    store
+        .save_active_binding(&ego_browser_device::ActiveBinding {
+            version: 1,
+            binding_id: "binding-test".into(),
+            generation: 7,
+            device_id: "device-test".into(),
+            task_space_label: "agent-remote:session-test".into(),
+            authorization_mode: "ego_browser_script_full_trust".into(),
+            user_confirmation: true,
+        })
+        .expect("save active binding");
+    let mut config = test_config();
+    config.work_root = store
+        .device_service_socket_path()
+        .parent()
+        .expect("credential directory")
+        .join("bridge-work");
+    let supervisor = BridgeSupervisor::new(config).expect("bridge supervisor");
+    let (mut peer_writer, peer_reader) = tokio::io::duplex(64);
+    peer_writer
+        .write_all(DEVICE_PEER_ADMISSION_CLOSED)
+        .await
+        .expect("write admission close heartbeat");
+    let (_stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+    let stop_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let callback_flag = Arc::clone(&stop_called);
+
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(1),
+        run_device_peer_observer_loop(
+            peer_reader,
+            Arc::clone(&supervisor),
+            store.clone(),
+            move || async move {
+                callback_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            },
+            stop_rx,
+            Duration::from_millis(100),
+        ),
+    )
+    .await
+    .expect("bounded admission observer");
+
+    assert!(matches!(
+        outcome,
+        DevicePeerObserverOutcome::AdmissionClosed
+    ));
+    assert!(!stop_called.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(matches!(
+        supervisor.resume_after_reconnect(),
+        Err(BridgeError::Revoked)
+    ));
+    assert!(store.load_active_binding("device-test").is_ok());
+}
+
+#[tokio::test]
 async fn device_heartbeat_rejects_malformed_frames_and_times_out() {
     let (mut malformed_writer, mut malformed_reader) = tokio::io::duplex(64);
     tokio::io::AsyncWriteExt::write_all(&mut malformed_writer, b"NOPE\n")

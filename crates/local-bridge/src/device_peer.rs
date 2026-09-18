@@ -44,25 +44,33 @@ pub(super) async fn connect_device_service_peer(
             "device client service socket changed during connection".into(),
         ));
     }
-    read_device_peer_heartbeat(&mut stream, DEVICE_PEER_HEARTBEAT_TIMEOUT).await?;
+    match read_device_peer_heartbeat(&mut stream, DEVICE_PEER_HEARTBEAT_TIMEOUT).await? {
+        DevicePeerHeartbeat::Alive => {}
+        DevicePeerHeartbeat::AdmissionClosed => {
+            return Err(BridgeError::Revoked);
+        }
+    }
     Ok(stream)
 }
 
 pub(super) async fn read_device_peer_heartbeat<R: AsyncRead + Unpin>(
     stream: &mut R,
     heartbeat_timeout: Duration,
-) -> Result<(), BridgeError> {
+) -> Result<DevicePeerHeartbeat, BridgeError> {
     let mut heartbeat = [0_u8; DEVICE_PEER_HEARTBEAT.len()];
     tokio::time::timeout(heartbeat_timeout, stream.read_exact(&mut heartbeat))
         .await
         .map_err(|_| BridgeError::ProtocolMessage("device client heartbeat timed out".into()))?
         .map_err(|_| BridgeError::ProtocolMessage("device client heartbeat was lost".into()))?;
-    if heartbeat != DEVICE_PEER_HEARTBEAT {
-        return Err(BridgeError::ProtocolMessage(
-            "device client heartbeat is malformed".into(),
-        ));
+    if heartbeat == DEVICE_PEER_HEARTBEAT {
+        return Ok(DevicePeerHeartbeat::Alive);
     }
-    Ok(())
+    if heartbeat == DEVICE_PEER_ADMISSION_CLOSED {
+        return Ok(DevicePeerHeartbeat::AdmissionClosed);
+    }
+    Err(BridgeError::ProtocolMessage(
+        "device client heartbeat is malformed".into(),
+    ))
 }
 
 pub(super) async fn run_device_peer_observer_loop<R, Stop, StopFuture>(
@@ -88,10 +96,18 @@ where
             }
             result = read_device_peer_heartbeat(&mut stream, heartbeat_timeout) => result,
         };
-        if let Err(error) = heartbeat {
-            let error =
-                fail_closed_device_peer_loss(&supervisor, &store, error, stop_binding).await;
-            return DevicePeerObserverOutcome::Lost(error);
+        match heartbeat {
+            Ok(DevicePeerHeartbeat::Alive) => {}
+            Ok(DevicePeerHeartbeat::AdmissionClosed) => {
+                // Revoke locally; the control plane owns pause versus terminal state.
+                supervisor.revoke();
+                return DevicePeerObserverOutcome::AdmissionClosed;
+            }
+            Err(error) => {
+                let error =
+                    fail_closed_device_peer_loss(&supervisor, &store, error, stop_binding).await;
+                return DevicePeerObserverOutcome::Lost(error);
+            }
         }
     }
 }
@@ -138,8 +154,13 @@ pub(super) async fn device_peer_task_failure(
     binding_id: &str,
     generation: u64,
 ) -> BridgeError {
-    if let Ok(DevicePeerObserverOutcome::Lost(error)) = outcome {
-        return error;
+    match outcome {
+        Ok(DevicePeerObserverOutcome::Lost(error)) => return error,
+        Ok(DevicePeerObserverOutcome::AdmissionClosed) => {
+            supervisor.revoke();
+            return BridgeError::Revoked;
+        }
+        _ => {}
     }
     let error = BridgeError::ProtocolMessage("device client peer observer stopped".into());
     let stop_api = api.clone();

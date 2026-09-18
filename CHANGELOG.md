@@ -2,6 +2,15 @@
 
 All notable changes to this repository are recorded here.
 
+## Unreleased
+
+- feat(lifecycle): add idempotent Device ensure, credential refresh, explicit
+  local admission, and identity-preserving setup, repair, upgrade, and removal.
+- harden(install): validate immutable release metadata, preserve owner-only
+  identity state, and keep upgrades fail-closed without signed release inputs.
+- test: cover registration crash recovery, generation-bound lifecycle actions,
+  installer modes, and intentional local admission closure.
+
 ## 0.1.11 - 2026-09-09
 
 - feat(install): reuse an authenticated agent-remote CLI credential for automatic

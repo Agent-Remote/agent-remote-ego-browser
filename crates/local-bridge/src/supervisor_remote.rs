@@ -165,7 +165,7 @@ impl BridgeSupervisor {
             drop(guard);
             let (status, exit_code, stdout, stderr, artifacts) = response;
             let inner = InnerExecuteResponse {
-                protocol: "ego-browser-bridge-v1-inner".into(),
+                protocol: INNER_PROTOCOL_VERSION.into(),
                 message_type: InnerMessageType::ExecuteResult,
                 request_id: envelope.request_id.clone(),
                 sequence: envelope.sequence,

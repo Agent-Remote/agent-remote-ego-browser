@@ -47,7 +47,27 @@ pub(super) async fn run_outbound(args: BridgeArgs) -> Result<(), BridgeError> {
             Err(error) => return Err(map_credential_error(error)),
         };
         match store.load_active_binding(&credential.device_id) {
-            Ok(binding) => break (credential, binding),
+            Ok(binding) => match store.local_admission_is_open(&credential.device_id, &binding) {
+                Ok(true) => break (credential, binding),
+                Ok(false) if !args.once => {
+                    if !announced_wait {
+                        eprintln!(
+                            "ego-browser-bridge waiting for explicit local execution admission"
+                        );
+                        announced_wait = true;
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(2)) => continue,
+                        signal = tokio::signal::ctrl_c() => {
+                            return signal.map_err(|_| BridgeError::ProtocolMessage(
+                                "shutdown signal handler failed".into()
+                            ));
+                        }
+                    }
+                }
+                Ok(false) => return Err(BridgeError::Revoked),
+                Err(error) => return Err(map_credential_error(error)),
+            },
             Err(CredentialError::Missing) if !args.once => {
                 if !announced_wait {
                     eprintln!(
@@ -110,6 +130,10 @@ pub(super) async fn run_outbound(args: BridgeArgs) -> Result<(), BridgeError> {
     let device_peer = match connect_device_service_peer(&store).await {
         Ok(peer) => peer,
         Err(error) => {
+            if matches!(error, BridgeError::Revoked) {
+                supervisor.revoke();
+                return Err(error);
+            }
             let stop_api = api.clone();
             let binding_id = config.binding_id.clone();
             let generation = config.generation;

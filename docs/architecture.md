@@ -70,6 +70,37 @@ label from that handoff and rejects an encrypted request whose default label or
 declared Task Space scope differs. Only an `active` binding with a healthy lease
 and matching capabilities can admit execution.
 
+## Unified machine state
+
+All user-facing clients project the same five states. `installed` means the
+local release, manifest, signature, and filesystem checks passed. `enabled`
+means the locally verified Bridge release is explicitly enabled; it does not
+include a Server global switch. `registered` means the local identity maps to
+an active Server Device. `available` means those states plus compatible
+runtime/profile/policy, healthy services, Server execution admission, and
+`local_admission_ready` allow a claim to begin. `connected` additionally
+requires a user-confirmed active binding, healthy lease, binding admission, and
+open local admission, and is the only state that permits execution.
+
+Server execution admission and Bridge local admission are independent. The
+Server gate may deny claim, relay hello, and execution while still allowing
+installation, enrollment, credential refresh, status, and revocation. The
+local gate remains closed before claim even when `local_admission_ready` is
+true. A Server or Admin process that cannot observe local facts reports them as
+`null`; it never derives `installed` from a Device list, folds enrollment into
+`enabled`, or equates a successful execute request with `available`.
+
+Node enrollment follows the same boundary even though it is outside this
+workspace's runtime process. The logged-in control workstation persists an
+owner-only `exchange_id` before issuing a short-lived join code, then passes
+the code only through the first SSH stdin to
+`agent-remote-node install --join-code-stdin`. If the response is lost, the
+workstation and Node retry the same `exchange_id` without a code and recover
+the same Server result. Neither code nor resulting Node token belongs in argv,
+URLs, environment variables, output, or exchange state. The join profile's
+`ego_browser_enabled` is only configured intent and cannot open Server
+execution admission.
+
 ## Lifecycle
 
 A binding starts with a 60-second lease, renews every 20 seconds, has a
@@ -99,7 +130,10 @@ supervisor's control pipe open, so Bridge death closes the pipe and terminates
 the monitor runtime rather than leaving an independent browser client behind.
 
 Pause, stop, revoke, tool-session termination, lease expiry, relay loss, policy
-drift, and generation change stop new admission. The Bridge terminates its
+drift, and generation change stop new admission. A user `pause` preserves the
+binding and owner-only paused handoff so a separately confirmed `resume` can
+advance `binding_generation`; a user `stop` is terminal, clears the handoff,
+and requires a fresh `connect` instead of resume. The Bridge terminates its
 managed process group and never replays a script whose result is unknown.
 Completed side effects cannot be rolled back, and a deliberately detached
 same-UID process is outside the supervisor's guarantee.
@@ -115,13 +149,19 @@ claim/takeover helper to return ownership to the agent; neither the monitor nor
 the Bridge performs an automatic claim or takeover.
 
 The independent Device Client also acts as the local authorization liveness
-peer. Its current-UID, mode `0600` Unix socket emits a fixed heartbeat every two
-seconds. The Bridge checks socket identity before and after connect, verifies
-the peer UID, requires the initial heartbeat, and enforces a five-second ongoing
-timeout. On loss, ordering is fail closed: revoke the supervisor and terminate
-managed executions, clear the local active-binding handoff, then attempt a
-generation-bound Server stop for at most ten seconds. Failure to confirm the
-Server stop never restores local admission.
+peer. Its current-UID, mode `0600` Unix socket emits `EGB1\n` while local
+admission is open and `EGB0\n` for an intentional local close. The Bridge
+checks socket identity before and after connect, verifies the peer UID, and
+requires an initial frame. On `EGB0`, it revokes the supervisor and terminates
+managed work but does not clear the lifecycle handoff or issue a remote stop;
+the initiating pause/stop/remove/forget operation owns that decision. Thus a
+local `pause` cannot be silently upgraded to a terminal remote `stop`.
+
+EOF, a malformed frame, a five-second timeout, or observer failure is instead
+unexpected peer loss. That path fails closed in order: revoke the supervisor
+and terminate managed executions, clear the local active-binding handoff, then
+attempt a generation-bound Server stop for at most ten seconds. Failure to
+confirm the Server stop never restores local admission.
 
 ## Local data
 

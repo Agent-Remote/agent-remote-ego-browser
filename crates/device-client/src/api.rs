@@ -24,6 +24,7 @@ impl DeviceApiClient {
     ) -> Result<Self, CredentialError> {
         let mut client = Self::new(credential)?;
         if identity.device_id != credential.device_id
+            || identity.release_profile != credential.release_profile
             || identity.credential_profile != credential.credential_profile
         {
             return Err(CredentialError::Malformed);
@@ -32,9 +33,7 @@ impl DeviceApiClient {
         Ok(client)
     }
 
-    /// Create a client for initial registration or explicit same-device key
-    /// rotation. The bearer token must be a fresh user credential; it is never
-    /// persisted by this client.
+    /// Creates a registration or rotation client without persisting its user credential.
     pub fn with_user_token(
         server_url: &str,
         user_token: &str,
@@ -68,11 +67,72 @@ impl DeviceApiClient {
         self.identity.as_ref()
     }
 
-    /// Register the exact locally held public keys, or rotate an existing
-    /// device to their newer generation, using proof signed by those new keys.
+    /// Registers exact local keys or rotates to a generation signed by those keys.
     pub async fn register_device(
         &self,
         mut payload: serde_json::Value,
+    ) -> Result<serde_json::Value, CredentialError> {
+        self.register_device_at(
+            "/api/v1/ego-browser/devices/register",
+            &mut payload,
+            None,
+            "register_device",
+        )
+        .await
+    }
+
+    /// Rotates identity under an idempotency namespace separate from `device.ensure`.
+    pub async fn rotate_device(
+        &self,
+        mut payload: serde_json::Value,
+        idempotency_key: &str,
+    ) -> Result<serde_json::Value, CredentialError> {
+        if idempotency_key.len() < 22
+            || idempotency_key.len() > 256
+            || idempotency_key
+                .bytes()
+                .any(|byte| !byte.is_ascii_graphic() || byte == b'"' || byte == b'\\')
+        {
+            return Err(CredentialError::Malformed);
+        }
+        self.register_device_at(
+            "/api/v1/ego-browser/devices/rotate",
+            &mut payload,
+            Some(idempotency_key),
+            "device_rotate",
+        )
+        .await
+    }
+
+    /// Ensures one local identity with an operation key separate from request tracing.
+    pub async fn ensure_device(
+        &self,
+        mut payload: serde_json::Value,
+        idempotency_key: &str,
+    ) -> Result<serde_json::Value, CredentialError> {
+        if idempotency_key.len() < 22
+            || idempotency_key.len() > 256
+            || idempotency_key
+                .bytes()
+                .any(|byte| !byte.is_ascii_graphic() || byte == b'"' || byte == b'\\')
+        {
+            return Err(CredentialError::Malformed);
+        }
+        self.register_device_at(
+            "/api/v1/ego-browser/devices/ensure",
+            &mut payload,
+            Some(idempotency_key),
+            "register_device",
+        )
+        .await
+    }
+
+    async fn register_device_at(
+        &self,
+        path: &str,
+        payload: &mut serde_json::Value,
+        idempotency_key: Option<&str>,
+        proof_operation: &str,
     ) -> Result<serde_json::Value, CredentialError> {
         let identity = self.identity.as_ref().ok_or(CredentialError::Malformed)?;
         let public_key = identity.public_key_b64();
@@ -83,11 +143,17 @@ impl DeviceApiClient {
             && object.get("public_key").and_then(serde_json::Value::as_str)
                 == Some(public_key.as_str())
             && object
+                .get("signing_public_key")
+                .is_none_or(|value| value.as_str() == Some(public_key.as_str()))
+            && object
                 .get("encryption_public_key")
                 .and_then(serde_json::Value::as_str)
                 == Some(encryption_public_key.as_str())
             && object.get("generation").and_then(serde_json::Value::as_u64)
                 == Some(identity.generation)
+            && object
+                .get("device_generation")
+                .is_none_or(|value| value.as_u64() == Some(identity.generation))
             && object
                 .get("release_profile")
                 .and_then(serde_json::Value::as_str)
@@ -101,9 +167,9 @@ impl DeviceApiClient {
         if !matches_identity {
             return Err(CredentialError::Malformed);
         }
-        self.add_proof_for_generation(&mut payload, identity.generation, "register_device", None)
+        self.add_proof_for_generation(payload, identity.generation, proof_operation, None)
             .await?;
-        self.post("/api/v1/ego-browser/devices/register", payload)
+        self.post_with_idempotency(path, payload, idempotency_key)
             .await
     }
 
@@ -145,6 +211,7 @@ impl DeviceApiClient {
         validate_api_id(binding_id)?;
         let object = payload.as_object_mut().ok_or(CredentialError::Malformed)?;
         object.insert("generation".into(), serde_json::json!(generation));
+        object.insert("binding_generation".into(), serde_json::json!(generation));
         self.add_proof_for_generation(
             &mut payload,
             generation,
@@ -169,6 +236,7 @@ impl DeviceApiClient {
         let identity = self.identity.as_ref().ok_or(CredentialError::Malformed)?;
         let mut payload = serde_json::json!({
             "generation": generation,
+            "binding_generation": generation,
             "role": "bridge",
             "ego_browser_device_id": identity.device_id,
         });
@@ -197,6 +265,7 @@ impl DeviceApiClient {
         validate_api_id(binding_id)?;
         let mut payload = serde_json::json!({
             "generation": generation,
+            "binding_generation": generation,
             "allowlist_revision": allowlist_revision,
             "learning_bundle_digest": learning_bundle_digest,
         });
@@ -216,7 +285,10 @@ impl DeviceApiClient {
         generation: u64,
     ) -> Result<serde_json::Value, CredentialError> {
         validate_api_id(binding_id)?;
-        let mut payload = serde_json::json!({"generation": generation});
+        let mut payload = serde_json::json!({
+            "generation": generation,
+            "binding_generation": generation,
+        });
         self.add_proof_for_generation(&mut payload, generation, "stop_binding", Some(binding_id))
             .await?;
         self.post(
@@ -233,7 +305,10 @@ impl DeviceApiClient {
         generation: u64,
     ) -> Result<serde_json::Value, CredentialError> {
         validate_api_id(binding_id)?;
-        let mut payload = serde_json::json!({"generation": generation});
+        let mut payload = serde_json::json!({
+            "generation": generation,
+            "binding_generation": generation,
+        });
         self.add_proof_for_generation(&mut payload, generation, "revoke_binding", Some(binding_id))
             .await?;
         self.post(
@@ -285,6 +360,7 @@ impl DeviceApiClient {
         }
         let mut payload = serde_json::json!({
             "generation": generation,
+            "binding_generation": generation,
             "reason": reason,
         });
         self.add_proof_for_generation(&mut payload, generation, "pause_binding", Some(binding_id))
@@ -307,6 +383,7 @@ impl DeviceApiClient {
         validate_api_id(binding_id)?;
         let mut payload = serde_json::json!({
             "generation": generation,
+            "binding_generation": generation,
             "user_confirmation": true,
             "allowlist_revision": allowlist_revision,
             "learning_bundle_digest": learning_bundle_digest,
@@ -331,6 +408,7 @@ impl DeviceApiClient {
         validate_api_id(binding_id)?;
         let mut payload = serde_json::json!({
             "generation": generation,
+            "binding_generation": generation,
             "expected_revision": expected_revision,
             "roots_digest": roots_digest,
             "user_confirmation": true,
@@ -365,14 +443,24 @@ impl DeviceApiClient {
         path: &str,
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, CredentialError> {
-        let response = self
+        self.post_with_idempotency(path, &payload, None).await
+    }
+
+    async fn post_with_idempotency(
+        &self,
+        path: &str,
+        payload: &serde_json::Value,
+        idempotency_key: Option<&str>,
+    ) -> Result<serde_json::Value, CredentialError> {
+        let mut request = self
             .http
             .post(format!("{}{}", self.base_url, path))
             .bearer_auth(&self.token)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|_| CredentialError::Network)?;
+            .json(payload);
+        if let Some(key) = idempotency_key {
+            request = request.header("Idempotency-Key", key);
+        }
+        let response = request.send().await.map_err(|_| CredentialError::Network)?;
         decode_response(response).await
     }
 
@@ -405,16 +493,25 @@ impl DeviceApiClient {
             return Err(CredentialError::Malformed);
         }
         let device_id = identity.device_id.clone();
+        // Keep legacy Device proof shape; binding and rotation use explicit generations.
+        let mut challenge_payload = serde_json::json!({
+            "operation": operation,
+            "ego_browser_device_id": device_id,
+            "generation": generation,
+            "binding_id": binding_id,
+        });
+        if !matches!(operation, "register_device" | "revoke_device") {
+            let object = challenge_payload
+                .as_object_mut()
+                .ok_or(CredentialError::Malformed)?;
+            object.insert(
+                "device_generation".into(),
+                serde_json::json!(identity.generation),
+            );
+            object.insert("operation_generation".into(), serde_json::json!(generation));
+        }
         let challenge_response = self
-            .post(
-                "/api/v1/ego-browser/proof-challenges",
-                serde_json::json!({
-                    "operation": operation,
-                    "ego_browser_device_id": device_id,
-                    "generation": generation,
-                    "binding_id": binding_id,
-                }),
-            )
+            .post("/api/v1/ego-browser/proof-challenges", challenge_payload)
             .await?;
         let challenge_text = challenge_response
             .pointer("/data/challenge")

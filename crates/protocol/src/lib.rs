@@ -49,6 +49,27 @@ pub const LOCAL_PLATFORM: &str = "macos";
 pub const SUPPORTED_SKILL_VERSION: &str = "1.2.3";
 /// Exact local ego-browser runtime version validated for this protocol release.
 pub const SUPPORTED_LOCAL_RUNTIME_VERSION: &str = "0.4.7.4";
+/// Reviewed upstream commit that supplies the Skill and installer.
+pub const EGO_LITE_INSTALLER_COMMIT: &str = "36053d07001a910cb806a15d42d00fdea1cdea3d";
+/// Reviewed upstream installer digest.
+pub const EGO_LITE_INSTALLER_SHA256: &str =
+    "7a4c307c9a8ee6abae094f7cd497a81992de81e1fc37719fde61c43fd841d057";
+/// Reviewed official Skill tree digest.
+pub const SUPPORTED_SKILL_TREE_SHA256: &str =
+    "262110a09678fd3e0bbb382400588dacb98b24659b3b4a57903703b65d133c7c";
+/// Cargo repository metadata used to derive release URLs.
+pub const RELEASE_REPOSITORY_URL: &str = env!("CARGO_PKG_REPOSITORY");
+/// Project self-signed release profile.
+pub const COMMUNITY_PROFILE_ID: &str = "community-local-trust";
+/// Fixed community signer trust root.
+pub const TRUSTED_COMMUNITY_SIGNER_CERTIFICATE_SHA256: &str =
+    "1b1527d1c0ac6b3a1e95ccd7d4e6462ece9f5a42d2f4d309d09170588a4197e5";
+/// Previous profile replaced by this source candidate.
+pub const REPLACED_COMMUNITY_PROFILE: &str = "community-local-trust@0.1.11";
+/// Server policy required by the signed release profile.
+pub const ADMISSION_POLICY_REF: &str = "server-policy:ego-browser-v1";
+/// Placeholder resolved to the user's authenticated control-plane origin.
+pub const ACTIVE_LOGIN_ORIGIN: &str = "$active_login_origin";
 /// 默认并发请求数。
 pub const DEFAULT_MAX_PARALLEL_REQUESTS: usize = 4;
 /// heredoc 脚本最大字节数。

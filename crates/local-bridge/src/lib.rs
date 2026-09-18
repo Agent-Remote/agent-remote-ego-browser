@@ -15,9 +15,9 @@ use ego_browser_bridge_protocol::{
     ConcurrencyMode, CredentialProfile, Direction, ExecutionStatus, InnerCancelRequest,
     InnerExecuteRequest, InnerExecuteResponse, InnerMessageType, LeasePolicy, LeaseState,
     OuterEnvelope, OuterMessageType, ProtocolError, ReleaseProfile, RequestPermit, RequestScope,
-    Scheduler, SessionCipher, ValidatedOutputPath, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_PIXELS,
-    MAX_EXECUTE_TIMEOUT_MS, MAX_SCRIPT_BYTES, MAX_STDERR_BYTES, MAX_STDOUT_BYTES, PROTOCOL_VERSION,
-    SUPPORTED_LOCAL_RUNTIME_VERSION, SUPPORTED_SKILL_VERSION,
+    Scheduler, SessionCipher, ValidatedOutputPath, INNER_PROTOCOL_VERSION, MAX_ARTIFACT_BYTES,
+    MAX_ARTIFACT_PIXELS, MAX_EXECUTE_TIMEOUT_MS, MAX_SCRIPT_BYTES, MAX_STDERR_BYTES,
+    MAX_STDOUT_BYTES, PROTOCOL_VERSION, SUPPORTED_LOCAL_RUNTIME_VERSION, SUPPORTED_SKILL_VERSION,
 };
 use ego_browser_device::VerifiedLocalPolicy;
 use serde::{Deserialize, Serialize};

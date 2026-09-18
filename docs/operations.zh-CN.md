@@ -1,4 +1,12 @@
-# 安装与运维
+# 安装与运维（高级）
+
+本文是底层 release、兼容与恢复 runbook。普通用户先用 `agent-remote` 登录，运行
+`agent-remote ego-browser setup`，并且只在准备选择和授权一个远端 session 时运行
+`agent-remote ego-browser connect`。受管流程会自动发现 Server、凭据、release profile 与证书
+pin，不要求用户复制 token 或 digest。下文中的显式参数仅用于 release 运维、自定义部署和旧版
+客户端。
+源码树中的 `0.1.12` candidate 尚未发布，在签名制品和 root-composition evidence 就绪前必须
+fail closed；下文命令继续指向已发布的 stable release。
 
 ## 前置条件
 
@@ -13,7 +21,7 @@
 
 安装器不会安装、修改或删除 ego lite。
 
-## 一键安装
+## 高级兼容 bootstrap
 
 如果希望一次完成依赖检查、ego lite（缺失时）和 Bridge 安装，可直接运行仓库提供的 bootstrap 脚本：
 
@@ -47,14 +55,14 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
 6. 清除并复查 quarantine，再次校验已安装 release；
 7. 写入受保护 certificate pin，原子切换 `current`，安装用户 launch agent。
 
-## 注册与绑定
+## 注册与绑定（高级兼容）
 
 ```sh
 current="$HOME/Library/Application Support/Agent Remote Ego Browser/current"
 
 "$current/bin/ego-browser-device" register \
   --server https://agent-remote.example.com \
-  --token USER_REGISTRATION_TOKEN \
+  --token-stdin \
   --signer-certificate-sha256 EXPECTED_64_HEX_DIGEST
 
 "$current/bin/ego-browser-device" candidates
@@ -62,8 +70,8 @@ current="$HOME/Library/Application Support/Agent Remote Ego Browser/current"
 "$current/bin/ego-browser-device" status BINDING_ID
 ```
 
-当前版本 registration token 会通过 stdin 传递，应使用短期 token；旧版客户端可能仍要求
-命令行形式。Device Client 不会在输出中显示保存后的替换 credential 或 private key。claim 始终要求准确候选 session 和
+请通过 owner-only secret source 把短期 registration token 传给命令的 stdin。当前客户端支持
+该受保护传输；仍要求旧版命令行形式的客户端只能用于隔离的兼容维护。Device Client 不会在输出中显示保存后的替换 credential 或 private key。claim 始终要求准确候选 session 和
 显式全信任确认。Server 派生 `agent-remote:<tool_session_id>`；Device Client 会拒绝响应中
 不同的 label，并把 canonical 值写入 owner-only active-binding handoff。resume 推进
 generation 时会再次校验同一 label。
@@ -72,7 +80,7 @@ generation 时会再次校验同一 label。
 
 ```sh
 "$current/bin/ego-browser-device" device-rotate \
-  --token USER_REGISTRATION_TOKEN \
+  --token-stdin \
   --signer-certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm
 ```

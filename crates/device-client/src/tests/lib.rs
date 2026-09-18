@@ -3,7 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 #[test]
 fn server_origin_is_canonical_and_cannot_redirect_via_url_fields() {
@@ -291,7 +291,7 @@ async fn device_registration_rotation_is_signed_by_the_new_generation() {
             challenge_body,
             serde_json::json!({
                 "operation": "register_device",
-                "ego_browser_device_id": expected_identity.device_id,
+                "ego_browser_device_id": expected_identity.device_id.clone(),
                 "generation": expected_identity.generation,
                 "binding_id": null,
             })
@@ -362,6 +362,91 @@ async fn device_registration_rotation_is_signed_by_the_new_generation() {
     server.await.expect("test server");
 }
 
+#[tokio::test]
+async fn device_ensure_uses_canonical_endpoint_and_idempotency_key() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind test server");
+    let address = listener.local_addr().expect("server address");
+    let identity = DeviceIdentity::generate("community-local-trust", "community_file");
+    let expected_identity = identity.clone();
+    let expected_response_device_id = identity.device_id.clone();
+    let challenge_text = URL_SAFE_NO_PAD.encode([5_u8; 32]);
+    let payload = serde_json::json!({
+        "device_id": identity.device_id.clone(),
+        "public_key": identity.public_key_b64(),
+        "signing_public_key": identity.public_key_b64(),
+        "encryption_public_key": identity.encryption_public_key_b64(),
+        "generation": identity.generation,
+        "device_generation": identity.generation,
+        "release_profile": identity.release_profile.clone(),
+        "credential_profile": identity.credential_profile.clone(),
+        "enrollment_mode": "ensure",
+        "platform": "macos",
+    });
+    let expected_payload = payload.clone();
+    let server = tokio::spawn(async move {
+        let (mut challenge_stream, _) = listener.accept().await.expect("challenge request");
+        let (challenge_headers, challenge_body) = read_json_request(&mut challenge_stream).await;
+        assert!(
+            challenge_headers.starts_with("POST /api/v1/ego-browser/proof-challenges HTTP/1.1\r\n")
+        );
+        assert_eq!(
+            challenge_body,
+            serde_json::json!({
+                "operation": "register_device",
+                "ego_browser_device_id": expected_identity.device_id.clone(),
+                "generation": expected_identity.generation,
+                "binding_id": null,
+            })
+        );
+        write_json_response(
+            &mut challenge_stream,
+            &serde_json::json!({"data": {"challenge": challenge_text}}),
+        )
+        .await;
+
+        let (mut ensure_stream, _) = listener.accept().await.expect("ensure request");
+        let (ensure_headers, mut ensure_body) = read_json_request(&mut ensure_stream).await;
+        assert!(ensure_headers.starts_with("POST /api/v1/ego-browser/devices/ensure HTTP/1.1\r\n"));
+        let idempotency = ensure_headers
+            .lines()
+            .find_map(|line| line.strip_prefix("Idempotency-Key: "))
+            .or_else(|| {
+                ensure_headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("idempotency-key: "))
+            })
+            .expect("idempotency key header");
+        assert_eq!(idempotency, "policy-sync-idempotency-key");
+        let object = ensure_body.as_object_mut().expect("ensure body object");
+        object.remove("proof_challenge");
+        object.remove("proof_signature");
+        assert_eq!(ensure_body, expected_payload);
+        write_json_response(
+            &mut ensure_stream,
+            &serde_json::json!({"data": {"id": expected_identity.device_id.clone()}}),
+        )
+        .await;
+    });
+
+    let client = DeviceApiClient {
+        http: Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("HTTP client"),
+        base_url: format!("http://{address}"),
+        token: "user_test-token".into(),
+        identity: Some(identity),
+    };
+    let response = client
+        .ensure_device(payload, "policy-sync-idempotency-key")
+        .await
+        .expect("ensure device");
+    assert_eq!(response["data"]["id"], expected_response_device_id);
+    server.await.expect("test server");
+}
+
 #[cfg(unix)]
 fn test_store() -> (tempfile::TempDir, CredentialStore) {
     let temporary = tempfile::tempdir().expect("temporary directory");
@@ -411,6 +496,184 @@ fn active_binding_handoff_is_owner_only_and_device_bound() {
 
 #[cfg(unix)]
 #[test]
+fn local_admission_states_are_strict_and_binding_bound() {
+    let (_temporary, store) = test_store();
+    let identity = DeviceIdentity::generate("community-local-trust", "community_file");
+    let credential = CommunityCredential {
+        version: 1,
+        device_id: identity.device_id.clone(),
+        server_url: "https://control.example.test".into(),
+        token: "egbc_admission-token".into(),
+        credential_id: Some("credential-admission".into()),
+        release_profile: identity.release_profile.clone(),
+        credential_profile: identity.credential_profile.clone(),
+        expires_at_unix: 4_000_000_000,
+        revision: 1,
+    };
+    store.save_identity(&identity).expect("save identity");
+    store.save(&credential).expect("save credential");
+    let binding = ActiveBinding {
+        version: 1,
+        binding_id: "binding-admission".into(),
+        generation: 3,
+        device_id: identity.device_id.clone(),
+        task_space_label: "agent-remote:11111111-2222-3333-4444-555555555555".into(),
+        authorization_mode: "ego_browser_script_full_trust".into(),
+        user_confirmation: true,
+    };
+    store
+        .close_local_admission()
+        .expect("close admission before claim");
+    assert_eq!(
+        store.load_local_admission().expect("closed record").state,
+        LOCAL_ADMISSION_CLOSED
+    );
+    store.ready_local_admission().expect("mark admission ready");
+    assert_eq!(
+        store.load_local_admission().expect("ready record").state,
+        LOCAL_ADMISSION_READY
+    );
+    store
+        .save_active_binding(&binding)
+        .expect("save active binding");
+    store
+        .open_local_admission(&binding)
+        .expect("open exact admission");
+    assert!(store
+        .local_admission_is_open(&identity.device_id, &binding)
+        .expect("matching admission"));
+    let mut different_generation = binding.clone();
+    different_generation.generation += 1;
+    assert!(!store
+        .local_admission_is_open(&identity.device_id, &different_generation)
+        .expect("stale generation is denied"));
+
+    fs::write(
+        &store.local_admission_path,
+        serde_json::json!({
+            "version": 1,
+            "state": "open",
+            "device_id": identity.device_id,
+            "device_generation": identity.generation,
+            "updated_at_unix": 1
+        })
+        .to_string(),
+    )
+    .expect("write malformed admission");
+    assert!(matches!(
+        store.load_local_admission(),
+        Err(CredentialError::Malformed)
+    ));
+    assert!(matches!(
+        store.local_admission_is_open(&binding.device_id, &binding),
+        Err(CredentialError::Malformed)
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn clear_removes_admission_but_retains_registration_lock_inode() {
+    let (_temporary, store) = test_store();
+    let identity = DeviceIdentity::generate("community-local-trust", "community_file");
+    let credential = CommunityCredential {
+        version: 1,
+        device_id: identity.device_id.clone(),
+        server_url: "https://control.example.test".into(),
+        token: "egbc_clear-token".into(),
+        credential_id: Some("credential-clear".into()),
+        release_profile: identity.release_profile.clone(),
+        credential_profile: identity.credential_profile.clone(),
+        expires_at_unix: 4_000_000_000,
+        revision: 1,
+    };
+    store.save_identity(&identity).expect("save identity");
+    store.save(&credential).expect("save credential");
+    store.close_local_admission().expect("close gate");
+    assert!(store.local_admission_path.exists());
+    let lock = store.lock_registration().expect("create registration lock");
+    drop(lock);
+    let lock_metadata =
+        fs::metadata(&store.registration_lock_path).expect("registration lock metadata");
+    let lock_inode = lock_metadata.ino();
+    store.clear().expect("clear local identity");
+    assert!(!store.local_admission_path.exists());
+    assert!(store.registration_lock_path.exists());
+    assert_eq!(
+        fs::metadata(&store.registration_lock_path)
+            .expect("retained registration lock")
+            .ino(),
+        lock_inode
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn registration_lock_serializes_concurrent_ensure_without_replacing_the_key() {
+    let (_temporary, store) = test_store();
+    let identity = DeviceIdentity::generate("community-local-trust", "community_file");
+    store.save_identity(&identity).expect("save identity");
+    let key_before = fs::read(&store.key_path).expect("read identity key");
+
+    let held = store
+        .lock_registration()
+        .expect("acquire first registration lock");
+    assert!(matches!(
+        store.lock_registration(),
+        Err(CredentialError::LocalLockBusy)
+    ));
+    assert_eq!(
+        fs::read(&store.key_path).expect("read retained identity key"),
+        key_before
+    );
+
+    drop(held);
+    store
+        .lock_registration()
+        .expect("registration lock is reusable after the first setup");
+}
+
+#[cfg(unix)]
+#[test]
+fn pending_registration_round_trip_reuses_identity_and_idempotency_key() {
+    let (_temporary, store) = test_store();
+    let identity = DeviceIdentity::generate("community-local-trust", "community_file");
+    store.save_identity(&identity).expect("save identity");
+    let key_before = fs::read(&store.key_path).expect("read identity key");
+    let pending = PendingRegistration {
+        version: 1,
+        device_id: identity.device_id.clone(),
+        device_generation: identity.generation,
+        server_url: "https://control.example.test".into(),
+        release_profile: identity.release_profile.clone(),
+        credential_profile: identity.credential_profile.clone(),
+        enrollment_mode: "initial".into(),
+        signing_public_key_sha256: "a".repeat(64),
+        encryption_public_key_sha256: "b".repeat(64),
+        idempotency_key: "pending-registration-idempotency-key".into(),
+        created_at_unix: 4_000_000_000,
+        last_error_code: None,
+    };
+
+    store
+        .save_pending_registration(&pending)
+        .expect("save pending registration");
+    assert_eq!(
+        store
+            .load_pending_registration()
+            .expect("recover pending registration"),
+        pending
+    );
+    assert_eq!(
+        fs::read(&store.key_path).expect("read recovered identity key"),
+        key_before
+    );
+    let metadata = fs::metadata(&store.pending_registration_path).expect("pending metadata");
+    assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    assert_eq!(metadata.nlink(), 1);
+}
+
+#[cfg(unix)]
+#[test]
 fn identity_rotation_is_monotonic_retryable_and_clears_the_old_handoff() {
     let (_temporary, store) = test_store();
     let current = DeviceIdentity::generate("community-local-trust", "community_file");
@@ -420,6 +683,7 @@ fn identity_rotation_is_monotonic_retryable_and_clears_the_old_handoff() {
         server_url: "https://control.example.test".into(),
         token: "egbc_current-token".into(),
         credential_id: Some("credential-current".into()),
+        release_profile: "community-local-trust".into(),
         credential_profile: "community_file".into(),
         expires_at_unix: 100,
         revision: 3,
@@ -463,6 +727,35 @@ fn identity_rotation_is_monotonic_retryable_and_clears_the_old_handoff() {
     let pending_metadata =
         fs::metadata(&store.pending_key_rotation_path).expect("pending identity metadata");
     assert_eq!(pending_metadata.permissions().mode() & 0o777, 0o600);
+    let operation = store
+        .load_or_create_pending_rotation(&current, &pending, current_credential.revision, None)
+        .expect("persist rotation operation");
+    assert_eq!(operation.current_generation, current.generation);
+    assert_eq!(operation.target_generation, pending.generation);
+    assert_eq!(
+        operation.previous_credential_revision,
+        current_credential.revision
+    );
+    assert!(matches!(
+        store.load_or_create_pending_rotation(
+            &current,
+            &pending,
+            current_credential.revision - 1,
+            Some(&operation.idempotency_key),
+        ),
+        Err(CredentialError::RotationConflict)
+    ));
+    assert_eq!(
+        store
+            .load_or_create_pending_rotation(
+                &current,
+                &pending,
+                current_credential.revision,
+                Some(&operation.idempotency_key),
+            )
+            .expect("recover rotation operation"),
+        operation
+    );
 
     // Simulate a local failure after the new key was installed but before
     // the returned credential was saved. The exact pending key remains the
@@ -482,6 +775,17 @@ fn identity_rotation_is_monotonic_retryable_and_clears_the_old_handoff() {
         .expect("recover partially committed rotation");
     assert_eq!(recovered.generation, pending.generation);
     assert_eq!(recovered.public_key_b64(), pending.public_key_b64());
+    assert_eq!(
+        store
+            .load_or_create_pending_rotation(
+                &installed,
+                &recovered,
+                current_credential.revision,
+                None,
+            )
+            .expect("recover operation after key commit"),
+        operation
+    );
 
     let rotated_credential = CommunityCredential {
         token: "egbc_rotated-token".into(),
@@ -520,6 +824,152 @@ fn identity_rotation_is_monotonic_retryable_and_clears_the_old_handoff() {
 
 #[cfg(unix)]
 #[test]
+fn identity_rotation_finalizes_after_pending_key_cleanup_crash() {
+    let (_temporary, store) = test_store();
+    let current = DeviceIdentity::generate("community-local-trust", "community_file");
+    let current_credential = CommunityCredential {
+        version: 1,
+        device_id: current.device_id.clone(),
+        server_url: "https://control.example.test".into(),
+        token: "egbc_current-token".into(),
+        credential_id: Some("credential-current".into()),
+        release_profile: "community-local-trust".into(),
+        credential_profile: "community_file".into(),
+        expires_at_unix: 100,
+        revision: 3,
+    };
+    store
+        .save_identity(&current)
+        .expect("save current identity");
+    store
+        .save_identity_metadata(&current, &current_credential.server_url)
+        .expect("save current metadata");
+    store
+        .save(&current_credential)
+        .expect("save current credential");
+    store
+        .save_active_binding(&ActiveBinding {
+            version: 1,
+            binding_id: "binding-before-finalize".into(),
+            generation: 5,
+            device_id: current.device_id.clone(),
+            task_space_label: "agent-remote:session-before-finalize".into(),
+            authorization_mode: "ego_browser_script_full_trust".into(),
+            user_confirmation: true,
+        })
+        .expect("save active handoff");
+
+    let next = store
+        .prepare_identity_rotation(&current)
+        .expect("prepare rotation");
+    let operation = store
+        .load_or_create_pending_rotation(&current, &next, current_credential.revision, None)
+        .expect("persist rotation operation");
+    assert!(!store
+        .finish_interrupted_identity_rotation(&current, &current_credential)
+        .expect("pending key is not finalized"));
+
+    let rotated_credential = CommunityCredential {
+        token: "egbc_rotated-token".into(),
+        credential_id: Some("credential-rotated".into()),
+        expires_at_unix: 200,
+        revision: 4,
+        ..current_credential
+    };
+    store.save_identity(&next).expect("commit rotated key");
+    store
+        .save_identity_metadata(&next, &rotated_credential.server_url)
+        .expect("commit rotated metadata");
+    store
+        .save(&rotated_credential)
+        .expect("commit rotated credential");
+    store.clear_active_binding().expect("clear old handoff");
+    fs::remove_file(&store.pending_key_rotation_path).expect("remove pending key");
+
+    assert!(store
+        .finish_interrupted_identity_rotation(&next, &rotated_credential)
+        .expect("finalize interrupted rotation"));
+    assert!(matches!(
+        read_owner_file(&store.pending_rotation_metadata_path),
+        Err(CredentialError::Missing)
+    ));
+    assert_eq!(
+        store
+            .load_identity(
+                next.device_id.clone(),
+                next.release_profile.clone(),
+                next.credential_profile.clone(),
+            )
+            .expect("load committed identity")
+            .public_key_b64(),
+        next.public_key_b64()
+    );
+    assert_eq!(
+        store
+            .load_for_rotation()
+            .expect("load committed credential"),
+        rotated_credential
+    );
+    assert_eq!(operation.target_generation, next.generation);
+}
+
+#[cfg(unix)]
+#[test]
+fn identity_rotation_metadata_only_state_rejects_the_old_credential() {
+    let (_temporary, store) = test_store();
+    let current = DeviceIdentity::generate("community-local-trust", "community_file");
+    let current_credential = CommunityCredential {
+        version: 1,
+        device_id: current.device_id.clone(),
+        server_url: "https://control.example.test".into(),
+        token: "egbc_current-token".into(),
+        credential_id: Some("credential-current".into()),
+        release_profile: current.release_profile.clone(),
+        credential_profile: current.credential_profile.clone(),
+        expires_at_unix: 100,
+        revision: 3,
+    };
+    store
+        .save_identity(&current)
+        .expect("save current identity");
+    store
+        .save_identity_metadata(&current, &current_credential.server_url)
+        .expect("save current metadata");
+    store
+        .save(&current_credential)
+        .expect("save current credential");
+
+    let next = store
+        .prepare_identity_rotation(&current)
+        .expect("prepare rotation");
+    let operation = store
+        .load_or_create_pending_rotation(&current, &next, current_credential.revision, None)
+        .expect("persist rotation operation");
+
+    // Simulate a crash after identity commit but before credential persistence.
+    store.save_identity(&next).expect("install target key");
+    store
+        .save_identity_metadata(&next, &current_credential.server_url)
+        .expect("install target metadata");
+    fs::remove_file(&store.pending_key_rotation_path).expect("remove pending key");
+
+    assert!(!store
+        .finish_interrupted_identity_rotation(&next, &current_credential)
+        .expect("old credential cannot finalize rotation"));
+    assert_eq!(
+        store
+            .load_pending_rotation()
+            .expect("retain rotation metadata"),
+        Some(operation)
+    );
+    assert_eq!(
+        store.load_for_rotation().expect("retain old credential"),
+        current_credential
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn credential_files_require_exact_0600_permissions() {
     let (_temporary, store) = test_store();
     let credential = CommunityCredential {
@@ -528,6 +978,7 @@ fn credential_files_require_exact_0600_permissions() {
         server_url: "https://control.example.test".into(),
         token: "egbc_strict-mode-token".into(),
         credential_id: Some("strict-mode-credential".into()),
+        release_profile: "community-local-trust".into(),
         credential_profile: "community_file".into(),
         expires_at_unix: 100,
         revision: 1,
@@ -554,6 +1005,7 @@ fn credential_clear_validates_every_target_before_removing_any_file() {
         server_url: "https://control.example.test".into(),
         token: "egbc_test-token".into(),
         credential_id: Some("credential-1".into()),
+        release_profile: "community-local-trust".into(),
         credential_profile: "community_file".into(),
         expires_at_unix: 100,
         revision: 1,
@@ -570,6 +1022,62 @@ fn credential_clear_validates_every_target_before_removing_any_file() {
     store.clear().expect("clear credential state");
     assert!(!store.credential_path.exists());
     assert!(!store.key_path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn local_metadata_is_non_secret_and_runtime_retirement_preserves_identity() {
+    let (_temporary, store) = test_store();
+    let identity = DeviceIdentity::generate("community-local-trust", "community_file");
+    let credential = CommunityCredential {
+        version: 1,
+        device_id: identity.device_id.clone(),
+        server_url: "https://control.example.test".into(),
+        token: "egbc_metadata-token".into(),
+        credential_id: Some("credential-metadata".into()),
+        release_profile: identity.release_profile.clone(),
+        credential_profile: identity.credential_profile.clone(),
+        expires_at_unix: 100,
+        revision: 4,
+    };
+    store.save_identity(&identity).expect("save identity");
+    store.save(&credential).expect("save credential");
+    store
+        .save_active_binding(&ActiveBinding {
+            version: 1,
+            binding_id: "binding-metadata".into(),
+            generation: 2,
+            device_id: identity.device_id.clone(),
+            task_space_label: "agent-remote:metadata".into(),
+            authorization_mode: "ego_browser_script_full_trust".into(),
+            user_confirmation: true,
+        })
+        .expect("save handoff");
+
+    let metadata = store.local_metadata().expect("load metadata");
+    assert_eq!(metadata.device_id, identity.device_id);
+    assert_eq!(metadata.device_generation, identity.generation);
+    assert_eq!(metadata.server_url, credential.server_url);
+    let encoded = serde_json::to_string(&metadata).expect("encode metadata");
+    assert!(!encoded.contains(&credential.token));
+    assert!(!encoded.contains("public_key"));
+
+    store.retire_runtime_state().expect("retire runtime state");
+    assert!(store
+        .load_identity(
+            identity.device_id.clone(),
+            identity.release_profile.clone(),
+            identity.credential_profile.clone(),
+        )
+        .is_ok());
+    assert!(matches!(
+        store.load_for_rotation(),
+        Err(CredentialError::Missing)
+    ));
+    assert!(matches!(
+        store.load_active_binding(&identity.device_id),
+        Err(CredentialError::Missing)
+    ));
 }
 
 #[cfg(unix)]

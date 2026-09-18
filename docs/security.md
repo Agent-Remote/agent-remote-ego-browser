@@ -45,6 +45,24 @@ configured HTTPS origin as deployment security dependencies.
 
 ## Credentials
 
+The public state model keeps `installed`, `enabled`, `registered`, `available`,
+and `connected` separate. In particular, local installation and enablement are
+not inferred from Server Device rows, enrollment does not imply execution
+admission, and only `connected` authorizes execution. Server execution admission
+and Bridge local admission are independent fail-closed gates; the former may be
+closed while enrollment, credential refresh, status, and revoke remain
+available. Unknown local observations are reported as `null`, not guessed from
+cached control-plane state.
+
+The managed Node join flow persists an unpredictable owner-only `exchange_id`
+on the control workstation before code issuance. A short-lived join code is
+sent only once through SSH stdin to `--join-code-stdin`; it is never placed in
+argv, a URL, the environment, logs, output, or persistent state. If the
+exchange response is lost, the same `exchange_id` retrieves the same consumed
+result without sending the code again. A join profile's
+`ego_browser_enabled` value is configuration intent, not proof that Server
+execution admission is open.
+
 The community profile stores the Device Client identity, policy, active-binding
 handoff, and short-lived credential in `~/.config/agent-remote-ego-browser`.
 Directories must be owned by the current UID with mode `0700`; sensitive files
@@ -99,6 +117,21 @@ the content-free reason `task_space_takeover`. Monitor failure uses
 `task_space_monitor_unavailable`. A failed pause request does not undo the local
 revocation. Resuming requires another explicit full-trust confirmation and a
 new generation; no component automatically claims or takes over the space.
+
+User `pause` and user `stop` both close local admission, but they are not
+interchangeable. Pause retains the binding and owner-only paused handoff for an
+explicitly confirmed resume at a new `binding_generation`. Stop is terminal,
+clears the handoff, and requires a fresh connect; the old binding cannot be
+resumed.
+
+The same-UID Device Client socket makes this distinction explicit. `EGB1\n`
+means local admission is open; `EGB0\n` is an intentional local close. On
+`EGB0`, the Bridge revokes supervised work but does not automatically call the
+remote stop endpoint or clear the lifecycle handoff, so pause remains pause.
+Only unexpected EOF, timeout, malformed input, or observer failure invokes the
+fail-closed peer-loss sequence: revoke and terminate locally, clear the active
+handoff, then attempt the generation-bound remote stop. A failed remote action
+never reopens local admission.
 
 ## Logging and incident response
 

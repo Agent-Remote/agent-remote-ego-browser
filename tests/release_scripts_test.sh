@@ -3,6 +3,30 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 current_version=$(tr -d '[:space:]' < "$root/VERSION")
+
+install_help=$(bash "$root/installer/install-macos.sh" --help)
+for expected in --setup --repair --upgrade --yes; do
+  grep -F -- "$expected" <<<"$install_help" >/dev/null
+done
+python3 - "$root/installer/install-macos.sh" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+for fragment in (
+    'lifecycle_mode=""',
+    'bridge_installer_unavailable: current Bridge release is missing',
+    'upgrade requires signed release inputs; refusing an implicit upgrade',
+    'launchctl bootstrap "$domain" "$device_plist"',
+    'print(manifest["local_ego_browser_runtime_version"])',
+    'expected_runtime_version=$(sed -n \'4p\' "$metadata")',
+    'if [ "$runtime_version" != "$expected_runtime_version" ]; then',
+):
+    if fragment not in source:
+        raise SystemExit(f"installer lifecycle contract is missing: {fragment}")
+PY
+echo "installer lifecycle contract passed"
+
 prepare_version=$(python3 - "$current_version" <<'PY'
 import re
 import sys
@@ -23,6 +47,49 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+# Exercise existing-install lifecycle modes with deterministic Darwin shims.
+lifecycle_home="$work/lifecycle-home"
+lifecycle_root="$lifecycle_home/Library/Application Support/Agent Remote Ego Browser"
+lifecycle_release="$lifecycle_root/releases/0.1.11"
+lifecycle_agents="$lifecycle_home/Library/LaunchAgents"
+mkdir -p "$lifecycle_release/bin" "$lifecycle_release/installer" "$lifecycle_agents" "$work/lifecycle-bin"
+printf '%s\n' '0.1.11' >"$lifecycle_release/VERSION"
+printf '%s\n' digest >"$lifecycle_release/ARCHIVE_SHA256"
+printf '%s\n' '{}' >"$lifecycle_release/SIGNING-EVIDENCE.json"
+for executable in ego-browser-bridge ego-browser-device; do
+  printf '%s\n' '#!/bin/sh' 'exit 0' >"$lifecycle_release/bin/$executable"
+  chmod 0500 "$lifecycle_release/bin/$executable"
+done
+printf '%s\n' '#!/bin/sh' 'exit 0' >"$lifecycle_release/installer/install-macos.sh"
+chmod 0500 "$lifecycle_release/installer/install-macos.sh"
+mkdir -p "$lifecycle_release/support"
+printf '%s\n' '#!/bin/sh' 'exit 0' >"$lifecycle_release/support/verify-community-release.sh"
+chmod 0500 "$lifecycle_release/support/verify-community-release.sh"
+printf '%s\n' 0000000000000000000000000000000000000000000000000000000000000000 \
+  >"$lifecycle_root/TRUSTED_CERTIFICATE_SHA256"
+chmod 0400 "$lifecycle_root/TRUSTED_CERTIFICATE_SHA256"
+ln -s "releases/0.1.11" "$lifecycle_root/current"
+printf '%s\n' plist >"$lifecycle_agents/dev.agentremote.ego-browser.bridge.plist"
+printf '%s\n' plist >"$lifecycle_agents/dev.agentremote.ego-browser.device.plist"
+printf '%s\n' '#!/bin/sh' 'printf Darwin' >"$work/lifecycle-bin/uname"
+printf '%s\n' '#!/bin/sh' 'printf 501' >"$work/lifecycle-bin/id"
+printf '%s\n' '#!/bin/sh' 'printf "%s\n" "$*" >>"$FAKE_LAUNCHCTL_LOG"' >"$work/lifecycle-bin/launchctl"
+chmod 0755 "$work/lifecycle-bin/uname" "$work/lifecycle-bin/id" "$work/lifecycle-bin/launchctl"
+FAKE_LAUNCHCTL_LOG="$work/launchctl.log" HOME="$lifecycle_home" \
+  PATH="$work/lifecycle-bin:/usr/bin:/bin" \
+  EGO_BROWSER_INSTALL_ROOT="$lifecycle_root" EGO_BROWSER_LAUNCH_AGENTS_DIR="$lifecycle_agents" \
+  bash "$root/installer/install-macos.sh" --setup --yes >/dev/null
+grep -F -- 'bootstrap gui/501' "$work/launchctl.log" >/dev/null
+if FAKE_LAUNCHCTL_LOG="$work/upgrade-launchctl.log" HOME="$lifecycle_home" \
+  PATH="$work/lifecycle-bin:/usr/bin:/bin" \
+  EGO_BROWSER_INSTALL_ROOT="$lifecycle_root" EGO_BROWSER_LAUNCH_AGENTS_DIR="$lifecycle_agents" \
+  bash "$root/installer/install-macos.sh" --upgrade --yes >"$work/upgrade-output" 2>&1; then
+  echo "lifecycle upgrade unexpectedly accepted without signed inputs" >&2
+  exit 1
+fi
+grep -F -- 'refusing an implicit upgrade' "$work/upgrade-output" >/dev/null
+echo "existing-install lifecycle smoke passed"
 
 fake_wrapper="$work/ego-browser"
 printf '#!/bin/sh\nprintf wrapper-test\\n\n' > "$fake_wrapper"
@@ -72,9 +139,11 @@ mkdir -p "$prepare_seed/scripts" "$work/fake-bin"
 cp "$root/scripts/prepare-release.sh" "$prepare_seed/scripts/prepare-release.sh"
 
 prepare_root="$work/prepare"
+same_root="$work/same"
 stale_root="$work/stale"
 duplicate_root="$work/duplicate"
 cp -R "$prepare_seed" "$prepare_root"
+cp -R "$prepare_seed" "$same_root"
 cp -R "$prepare_seed" "$stale_root"
 cp -R "$prepare_seed" "$duplicate_root"
 cat > "$work/fake-bin/cargo" <<'EOF'
@@ -86,12 +155,24 @@ test "$3" = --locked
 EOF
 chmod 0700 "$work/fake-bin/cargo"
 
+PATH="$work/fake-bin:$PATH" \
+  bash "$same_root/scripts/prepare-release.sh" "$current_version"
+for relative in "${mutable_version_files[@]}"; do
+  if [ "$relative" != CHANGELOG.md ]; then
+    cmp "$prepare_seed/$relative" "$same_root/$relative"
+  fi
+done
+grep -F "## $current_version - " "$same_root/CHANGELOG.md" >/dev/null
 if PATH="$work/fake-bin:$PATH" \
-  bash "$prepare_root/scripts/prepare-release.sh" "$current_version" >/dev/null 2>&1; then
-  echo "prepare-release accepted the current stale version" >&2
+  bash "$same_root/scripts/prepare-release.sh" "$current_version" >/dev/null 2>&1; then
+  echo "prepare-release accepted a duplicate changelog version" >&2
   exit 1
 fi
-test "$(tr -d '[:space:]' < "$prepare_root/VERSION")" = "$current_version"
+if PATH="$work/fake-bin:$PATH" \
+  bash "$prepare_root/scripts/prepare-release.sh" '0.0.0' >/dev/null 2>&1; then
+  echo "prepare-release accepted an older version" >&2
+  exit 1
+fi
 if PATH="$work/fake-bin:$PATH" \
   bash "$prepare_root/scripts/prepare-release.sh" invalid >/dev/null 2>&1; then
   echo "prepare-release accepted an invalid semantic version" >&2
@@ -115,19 +196,18 @@ if PATH="$work/fake-bin:$PATH" \
 fi
 test "$(tr -d '[:space:]' < "$stale_root/VERSION")" = "$current_version"
 
-python3 - "$duplicate_root/CHANGELOG.md" "$prepare_version" "$current_version" <<'PY'
+python3 - "$duplicate_root/CHANGELOG.md" "$prepare_version" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 source = path.read_text()
-pattern = rf"(?m)^## {re.escape(sys.argv[3])} - "
-replacement = f"## {sys.argv[2]} - 2000-01-01\n\n## {sys.argv[3]} - "
-updated, count = re.subn(pattern, replacement, source, count=1)
-if count != 1:
-    raise SystemExit("could not create duplicate changelog heading fixture")
-path.write_text(updated)
+heading = f"## {sys.argv[2]} - 2000-01-01\n\n- duplicate fixture\n\n"
+first_heading = re.search(r"(?m)^## ", source)
+if first_heading is None:
+    raise SystemExit("could not locate a changelog section")
+path.write_text(source[: first_heading.start()] + heading + source[first_heading.start() :])
 PY
 if PATH="$work/fake-bin:$PATH" \
   bash "$duplicate_root/scripts/prepare-release.sh" "$prepare_version" >/dev/null 2>&1; then
@@ -230,6 +310,77 @@ bash "$root/installer/install-macos.sh" --help >/dev/null
 bash "$root/installer/uninstall-macos.sh" --help >/dev/null
 bash "$root/installer/rollback-macos.sh" --help >/dev/null
 
+# Verify the pin uses leaf DER rather than the different chain certificate.
+leaf_package="$work/leaf-certificate-package"
+leaf_bin="$work/leaf-certificate-bin"
+leaf_der="$work/leaf-certificate.der"
+chain_der="$work/chain-certificate.der"
+mkdir -p "$leaf_package/bin" "$leaf_bin"
+printf '\060\003\002\001\001' >"$leaf_der"
+printf '\060\003\002\001\002' >"$chain_der"
+for executable in ego-browser-bridge ego-browser-device; do
+  printf '#!/bin/sh\nexit 0\n' >"$leaf_package/bin/$executable"
+  chmod 0700 "$leaf_package/bin/$executable"
+done
+leaf_digest=$(shasum -a 256 "$leaf_der" | awk '{print $1}')
+chain_digest=$(shasum -a 256 "$chain_der" | awk '{print $1}')
+python3 - "$leaf_package/SIGNING-EVIDENCE.json" "$leaf_digest" "$current_version" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+Path(sys.argv[1]).write_text(json.dumps({
+    "schema_version": 1,
+    "version": sys.argv[3],
+    "profile": "community-local-trust",
+    "production_ready": False,
+    "readiness_blockers": ["learning_bundle_signing_private_key_unavailable"],
+    "apple_notarized": False,
+    "public_distribution": False,
+    "signing_type": "project-self-signed",
+    "signer_certificate_sha256": sys.argv[2],
+    "bridge_signature_verified": True,
+    "device_client_signature_verified": True,
+    "nested_signatures_verified": True,
+    "hardened_runtime": True,
+    "outbound_policy": "application-enforced",
+    "credential_profile": "community_file",
+    "learning_bundle_digest": None,
+    "learning_bundle_signing_key_id": "release-test-key",
+}))
+PY
+printf '%s\n' '#!/bin/sh' \
+  'set -eu' \
+  'for argument in "$@"; do' \
+  '  case "$argument" in' \
+  '    --extract-certificates=*)' \
+  '      prefix=${argument#*=}' \
+  '      cp "$FAKE_CODESIGN_LEAF_DER" "${prefix}0"' \
+  '      cp "$FAKE_CODESIGN_CHAIN_DER" "${prefix}1"' \
+  '      exit 0' \
+  '      ;;' \
+  '  esac' \
+  'done' \
+  'if [ "${1:-}" = "--display" ]; then' \
+  '  printf "%s\n" "CodeDirectory v=20500 size=64 flags=0x10000(runtime)" >&2' \
+  '  exit 0' \
+  'fi' \
+  '[ "${1:-}" = "--verify" ]' >"$leaf_bin/codesign"
+printf '#!/bin/sh\nprintf Darwin\n' >"$leaf_bin/uname"
+chmod 0700 "$leaf_bin/codesign" "$leaf_bin/uname"
+PATH="$leaf_bin:/usr/bin:/bin" \
+  FAKE_CODESIGN_LEAF_DER="$leaf_der" FAKE_CODESIGN_CHAIN_DER="$chain_der" \
+  bash "$root/scripts/verify-community-release.sh" \
+    "$leaf_package" "$leaf_digest" "$current_version"
+if PATH="$leaf_bin:/usr/bin:/bin" \
+  FAKE_CODESIGN_LEAF_DER="$leaf_der" FAKE_CODESIGN_CHAIN_DER="$chain_der" \
+  bash "$root/scripts/verify-community-release.sh" \
+    "$leaf_package" "$chain_digest" "$current_version" >/dev/null 2>&1; then
+  echo "community verifier accepted a non-leaf certificate pin" >&2
+  exit 1
+fi
+echo "community verifier binds the signer pin to leaf DER bytes"
+
 inventory_root="$work/inventory-package"
 inventory_bin="$work/inventory-bin"
 inventory_archive="$work/agent-remote-ego-browser-macos-universal-${current_version}.tar.gz"
@@ -265,6 +416,7 @@ from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
     "version": sys.argv[5],
     "signer_certificate_sha256": sys.argv[4],
+    "local_ego_browser_runtime_version": "0.4.7.4",
     "artifacts": [{
         "name": sys.argv[2],
         "kind": "macos_local_components",
@@ -314,10 +466,28 @@ probe_archive="$work/agent-remote-ego-browser-macos-universal-${current_version}
 probe_manifest="$work/probe-manifest.json"
 probe_launch_agents="$uninstall_work/probe-launch-agents"
 probe_install_root="$uninstall_work/probe-install"
+probe_device_home="$uninstall_work/probe-device-home"
+probe_old_release="$probe_install_root/releases/0.1.11"
 probe_runtime="$work/probe-runtime"
 probe_bin="$work/probe-bin"
 mkdir -p "$probe_root/bin" "$probe_root/installer" "$probe_root/support" \
-  "$probe_bin" "$probe_launch_agents"
+  "$probe_bin" "$probe_launch_agents" "$probe_device_home" "$probe_old_release"
+chmod 0700 "$probe_device_home" "$probe_install_root" "$probe_install_root/releases" \
+  "$probe_old_release"
+printf '%s\n' '0.1.11' >"$probe_old_release/VERSION"
+ln -s "$probe_old_release" "$probe_install_root/current"
+printf '%s\n' 'retained-device-private-key-fixture' \
+  >"$probe_device_home/ego-browser-device-key.bin"
+cat >"$probe_device_home/ego-browser-device-metadata.json" <<'EOF'
+{"version":1,"device_id":"retained-upgrade-device","server_url":"https://control.example.test","release_profile":"community-local-trust","credential_profile":"community_file"}
+EOF
+cat >"$probe_device_home/ego-browser-policy.json" <<'EOF'
+{"version":1,"policy_revision":7,"allowlist_revision":4,"allowlist_roots":[],"allowlist_roots_digest":null,"learning_bundle_root":null}
+EOF
+chmod 0600 "$probe_device_home"/*
+probe_key_digest=$(shasum -a 256 "$probe_device_home/ego-browser-device-key.bin" | awk '{print $1}')
+probe_metadata_digest=$(shasum -a 256 "$probe_device_home/ego-browser-device-metadata.json" | awk '{print $1}')
+probe_policy_digest=$(shasum -a 256 "$probe_device_home/ego-browser-policy.json" | awk '{print $1}')
 printf '#!/bin/sh\nprintf "Darwin\\n"\n' >"$fake_system/uname"
 printf '#!/bin/sh\nprintf "501\\n"\n' >"$fake_system/id"
 printf '#!/bin/sh\nexit 0\n' >"$fake_system/launchctl"
@@ -330,6 +500,8 @@ printf '%s\n' '#!/bin/sh' \
   'set -eu' \
   'if [ "${1:-}" = "-fh" ]; then' \
   '  shift' \
+  '  test "$#" -eq 2' \
+  '  if [ -L "$2" ]; then /bin/rm -f "$2"; fi' \
   '  exec /bin/mv -f "$@"' \
   'fi' \
   'exec /bin/mv "$@"' >"$fake_system/mv"
@@ -383,6 +555,7 @@ from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
     "version": sys.argv[5],
     "signer_certificate_sha256": sys.argv[4],
+    "local_ego_browser_runtime_version": "0.4.7.4",
     "artifacts": [{
         "name": sys.argv[2],
         "kind": "macos_local_components",
@@ -406,7 +579,9 @@ probe_output=$(PATH="$fake_system:$probe_bin:/usr/bin:/bin" \
   RELEASE_MANIFEST_VERIFIER="$probe_root/support/release_manifest.py" \
   EGO_BROWSER_INSTALL_ROOT="$probe_install_root" \
   EGO_BROWSER_LAUNCH_AGENTS_DIR="$probe_launch_agents" \
+  EGO_BROWSER_DEVICE_HOME="$probe_device_home" \
   bash "$root/installer/install-macos.sh" \
+    --upgrade --yes \
     --archive "$probe_archive" \
     --archive-sigstore-bundle "$work/probe-archive.sigstore.json" \
     --manifest "$probe_manifest" \
@@ -418,6 +593,22 @@ grep -q "installed ego-browser Bridge $current_version" <<<"$probe_output"
 grep -q "production_ready=false" <<<"$probe_output"
 test -L "$probe_install_root/current"
 test -x "$probe_install_root/current/bin/ego-browser-bridge"
+test "$(tr -d '[:space:]' <"$probe_install_root/current/VERSION")" = "$current_version"
+test "$(shasum -a 256 "$probe_device_home/ego-browser-device-key.bin" | awk '{print $1}')" = \
+  "$probe_key_digest"
+test "$(shasum -a 256 "$probe_device_home/ego-browser-device-metadata.json" | awk '{print $1}')" = \
+  "$probe_metadata_digest"
+test "$(shasum -a 256 "$probe_device_home/ego-browser-policy.json" | awk '{print $1}')" = \
+  "$probe_policy_digest"
+python3 - "$probe_device_home/ego-browser-device-metadata.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    metadata = json.load(handle)
+assert metadata["device_id"] == "retained-upgrade-device", metadata
+PY
+echo "signed Bridge upgrade preserved Device identity"
 
 printf '#!/bin/sh\nprintf "%%s\\n" "ego-browser-independent-runtime"\n' \
   >"$standalone_runtime"

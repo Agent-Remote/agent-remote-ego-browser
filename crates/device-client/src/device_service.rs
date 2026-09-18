@@ -22,7 +22,7 @@ pub(super) async fn service(store: &CredentialStore) -> Result<(), Box<dyn std::
             accepted = listener.accept() => {
                 let (stream, _) = accepted?;
                 if same_user_peer(&stream) {
-                    peers.spawn(serve_device_peer(stream));
+                    peers.spawn(serve_device_peer_with_store(stream, store.clone()));
                     emit_metric(
                         "ego_browser_device_bridge_peers",
                         peers.len() as u64,
@@ -34,8 +34,6 @@ pub(super) async fn service(store: &CredentialStore) -> Result<(), Box<dyn std::
                 }
             }
             _ = metadata_interval.tick() => {
-                // This heartbeat fetches metadata only. It never receives scripts,
-                // page data, screenshots, credentials, or local paths.
                 let status = refresh_candidate_metadata(store).await;
                 emit_metric("ego_browser_device_refresh_total", 1, "requests", status);
             }
@@ -57,7 +55,7 @@ async fn refresh_candidate_metadata(store: &CredentialStore) -> &'static str {
     };
     let Ok(identity) = store.load_identity(
         credential.device_id.clone(),
-        "community-local-trust".into(),
+        credential.release_profile.clone(),
         credential.credential_profile.clone(),
     ) else {
         return "identity_unavailable";
@@ -92,14 +90,71 @@ pub(super) fn metric_event(
     .to_string()
 }
 
-pub(super) async fn serve_device_peer(mut stream: UnixStream) {
+#[cfg(test)]
+pub(super) async fn serve_device_peer(stream: UnixStream) {
+    serve_device_peer_inner(stream, None).await;
+}
+
+pub(super) async fn serve_device_peer_with_store(stream: UnixStream, store: CredentialStore) {
+    serve_device_peer_inner(stream, Some(store)).await;
+}
+
+async fn serve_device_peer_inner(mut stream: UnixStream, store: Option<CredentialStore>) {
     let mut interval = tokio::time::interval(DEVICE_PEER_HEARTBEAT_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         interval.tick().await;
-        if stream.write_all(DEVICE_PEER_HEARTBEAT).await.is_err() {
-            return;
+        match store
+            .as_ref()
+            .map(local_peer_admission)
+            .unwrap_or(LocalPeerAdmission::Open)
+        {
+            LocalPeerAdmission::Open => {
+                if stream.write_all(DEVICE_PEER_HEARTBEAT).await.is_err() {
+                    return;
+                }
+            }
+            LocalPeerAdmission::Closed => {
+                // Only an explicit claim may reopen admission.
+                if stream
+                    .write_all(DEVICE_PEER_ADMISSION_CLOSED)
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+                return;
+            }
+            LocalPeerAdmission::Invalid => {
+                // Invalid authorization returns EOF rather than a pause signal.
+                return;
+            }
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LocalPeerAdmission {
+    Open,
+    Closed,
+    Invalid,
+}
+
+fn local_peer_admission(store: &CredentialStore) -> LocalPeerAdmission {
+    let credential = match store.load(now()) {
+        Ok(credential) => credential,
+        Err(CredentialError::Missing) => return LocalPeerAdmission::Closed,
+        Err(_) => return LocalPeerAdmission::Invalid,
+    };
+    let binding = match store.load_active_binding(&credential.device_id) {
+        Ok(binding) => binding,
+        Err(CredentialError::Missing) => return LocalPeerAdmission::Closed,
+        Err(_) => return LocalPeerAdmission::Invalid,
+    };
+    match store.local_admission_is_open(&credential.device_id, &binding) {
+        Ok(true) => LocalPeerAdmission::Open,
+        Ok(false) => LocalPeerAdmission::Closed,
+        Err(_) => LocalPeerAdmission::Invalid,
     }
 }
 

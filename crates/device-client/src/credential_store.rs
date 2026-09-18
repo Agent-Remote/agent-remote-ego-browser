@@ -32,18 +32,139 @@ impl CredentialStore {
         Ok(Self {
             credential_path: directory.join("ego-browser-credential.json"),
             key_path: directory.join("ego-browser-device-key.bin"),
+            identity_metadata_path: directory.join("ego-browser-device-metadata.json"),
             pending_key_rotation_path: directory.join("ego-browser-device-key.pending.bin"),
+            pending_rotation_metadata_path: directory.join("ego-browser-pending-rotation.json"),
+            pending_registration_path: directory.join("ego-browser-pending-registration.json"),
+            registration_lock_path: directory.join(".ego-browser-registration.lock"),
             policy_path: directory.join("ego-browser-policy.json"),
             policy_lock_path: directory.join(".ego-browser-policy.lock"),
             active_binding_path: directory.join("ego-browser-active-binding.json"),
+            local_admission_path: directory.join(LOCAL_ADMISSION_FILE_NAME),
             directory,
         })
     }
 
-    /// Return the private Unix socket used to prove that the launchd Device
-    /// Client peer is alive. The socket carries no credentials or browser data.
     pub fn device_service_socket_path(&self) -> PathBuf {
         self.directory.join("device-service.sock")
+    }
+
+    /// Acquires the registration lock without waiting.
+    pub fn lock_registration(&self) -> Result<RegistrationLock, CredentialError> {
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        }
+        let file = options
+            .open(&self.registration_lock_path)
+            .map_err(CredentialError::Io)?;
+        validate_owner_file_metadata(&file.metadata().map_err(CredentialError::Io)?)?;
+        #[cfg(unix)]
+        {
+            let operation = libc::LOCK_EX | libc::LOCK_NB;
+            if unsafe { libc::flock(file.as_raw_fd(), operation) } != 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::WouldBlock {
+                    return Err(CredentialError::LocalLockBusy);
+                }
+                return Err(CredentialError::Io(error));
+            }
+        }
+        Ok(RegistrationLock { _file: file })
+    }
+
+    pub fn load_pending_registration(&self) -> Result<PendingRegistration, CredentialError> {
+        let pending = self.read_pending_registration()?;
+        if pending.is_expired(unix_now()) {
+            return Err(CredentialError::PendingExpired);
+        }
+        Ok(pending)
+    }
+
+    /// Reads pending state without expiry so diagnostics preserve recovery evidence.
+    fn read_pending_registration(&self) -> Result<PendingRegistration, CredentialError> {
+        let bytes = read_owner_file(&self.pending_registration_path)?;
+        let pending: PendingRegistration =
+            parse_strict_json(&bytes).map_err(|_| CredentialError::Malformed)?;
+        if pending.version != 1
+            || validate_api_id(&pending.device_id).is_err()
+            || canonical_server_url(&pending.server_url).is_err()
+            || !matches!(
+                pending.enrollment_mode.as_str(),
+                "initial" | "ensure" | "re_enroll" | "rotate"
+            )
+            || pending.device_generation == 0
+            || pending.created_at_unix == 0
+            || pending.idempotency_key.len() < 22
+            || pending.idempotency_key.len() > 256
+            || pending
+                .idempotency_key
+                .bytes()
+                .any(|byte| !byte.is_ascii_graphic() || byte == b'"' || byte == b'\\')
+            || pending.signing_public_key_sha256.len() != 64
+            || pending.encryption_public_key_sha256.len() != 64
+            || !pending
+                .signing_public_key_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+            || !pending
+                .encryption_public_key_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(CredentialError::Malformed);
+        }
+        Ok(pending)
+    }
+
+    /// Persists recovery state atomically with owner-only permissions.
+    pub fn save_pending_registration(
+        &self,
+        pending: &PendingRegistration,
+    ) -> Result<(), CredentialError> {
+        if pending.version != 1
+            || pending.device_generation == 0
+            || pending.created_at_unix == 0
+            || validate_api_id(&pending.device_id).is_err()
+            || canonical_server_url(&pending.server_url).is_err()
+            || !matches!(
+                pending.enrollment_mode.as_str(),
+                "initial" | "ensure" | "re_enroll" | "rotate"
+            )
+            || pending.idempotency_key.len() < 22
+            || pending.idempotency_key.len() > 256
+        {
+            return Err(CredentialError::Malformed);
+        }
+        let bytes = serde_json::to_vec(pending).map_err(|_| CredentialError::Malformed)?;
+        atomic_owner_write(
+            &self.directory,
+            &self.pending_registration_path,
+            &bytes,
+            "pending registration",
+        )
+    }
+
+    /// Updates only the bounded error attached to pending state.
+    pub fn record_pending_registration_error(
+        &self,
+        code: Option<&str>,
+    ) -> Result<(), CredentialError> {
+        let Ok(mut pending) = self.read_pending_registration() else {
+            return Ok(());
+        };
+        pending.last_error_code = code.map(str::to_owned);
+        self.save_pending_registration(&pending)
+    }
+
+    /// Clears pending state only after identity and credential persistence.
+    pub fn clear_pending_registration(&self) -> Result<(), CredentialError> {
+        remove_owner_file_if_present(&self.pending_registration_path)
     }
 
     /// Load and strictly verify the owner-only local policy.
@@ -173,11 +294,119 @@ impl CredentialStore {
         self.load_credential(Some(now_unix))
     }
 
-    /// Load a credential for an explicitly user-authenticated recovery or key
-    /// rotation. The caller supplies fresh user authentication, so expiry is
-    /// not used to hide the device ID or its canonical Server origin.
+    /// Loads expired credential metadata only for fresh user-authenticated recovery.
     pub fn load_for_rotation(&self) -> Result<CommunityCredential, CredentialError> {
         self.load_credential(None)
+    }
+
+    /// Reads exact identity metadata, including for expired-credential recovery.
+    pub fn local_metadata(&self) -> Result<LocalDeviceMetadata, CredentialError> {
+        match self.load_for_rotation() {
+            Ok(credential) => {
+                let identity = self.load_identity(
+                    credential.device_id.clone(),
+                    credential.release_profile.clone(),
+                    credential.credential_profile.clone(),
+                )?;
+                // Backfill legacy metadata only after validating both credential and key.
+                self.save_identity_metadata(&identity, &credential.server_url)?;
+                Ok(LocalDeviceMetadata {
+                    device_id: identity.device_id,
+                    device_generation: identity.generation,
+                    server_url: credential.server_url,
+                    release_profile: identity.release_profile,
+                    credential_profile: identity.credential_profile,
+                    credential_revision: credential.revision,
+                    credential_expires_at_unix: credential.expires_at_unix,
+                })
+            }
+            Err(CredentialError::Missing) => {
+                let metadata = self.load_identity_metadata()?;
+                let identity = self.load_identity(
+                    metadata.device_id.clone(),
+                    metadata.release_profile.clone(),
+                    metadata.credential_profile.clone(),
+                )?;
+                Ok(LocalDeviceMetadata {
+                    device_id: identity.device_id,
+                    device_generation: identity.generation,
+                    server_url: metadata.server_url,
+                    release_profile: identity.release_profile,
+                    credential_profile: identity.credential_profile,
+                    credential_revision: 0,
+                    credential_expires_at_unix: 0,
+                })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn save_identity_metadata(
+        &self,
+        identity: &DeviceIdentity,
+        server_url: &str,
+    ) -> Result<(), CredentialError> {
+        let metadata = StoredIdentityMetadata {
+            version: 1,
+            device_id: identity.device_id.clone(),
+            server_url: canonical_server_url(server_url)?,
+            release_profile: identity.release_profile.clone(),
+            credential_profile: identity.credential_profile.clone(),
+        };
+        if !valid_stored_identity_metadata(&metadata) {
+            return Err(CredentialError::Malformed);
+        }
+        let bytes = serde_json::to_vec(&metadata).map_err(|_| CredentialError::Malformed)?;
+        atomic_owner_write(
+            &self.directory,
+            &self.identity_metadata_path,
+            &bytes,
+            "device metadata",
+        )
+    }
+
+    pub fn load_identity_metadata(&self) -> Result<StoredIdentityMetadata, CredentialError> {
+        let bytes = read_owner_file(&self.identity_metadata_path)?;
+        let metadata: StoredIdentityMetadata =
+            parse_strict_json(&bytes).map_err(|_| CredentialError::Malformed)?;
+        if !valid_stored_identity_metadata(&metadata) {
+            return Err(CredentialError::Malformed);
+        }
+        Ok(metadata)
+    }
+
+    /// Reports identity presence while rejecting an unsafe key path.
+    pub fn identity_exists(&self) -> Result<bool, CredentialError> {
+        match fs::symlink_metadata(&self.key_path) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() || !metadata.is_file() {
+                    return Err(CredentialError::InvalidPath);
+                }
+                validate_owner_file_metadata(&metadata)?;
+                Ok(true)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(CredentialError::Io(error)),
+        }
+    }
+
+    /// Removes short-lived runtime state while retaining identity and verified policy.
+    pub fn retire_runtime_state(&self) -> Result<(), CredentialError> {
+        // Preserve origin before deleting the only record carrying it on legacy installs.
+        match self.load_for_rotation() {
+            Ok(credential) => {
+                let identity = self.load_identity(
+                    credential.device_id.clone(),
+                    credential.release_profile.clone(),
+                    credential.credential_profile.clone(),
+                )?;
+                self.save_identity_metadata(&identity, &credential.server_url)?;
+            }
+            Err(CredentialError::Missing) => {}
+            Err(error) => return Err(error),
+        }
+        remove_owner_file_if_present(&self.credential_path)?;
+        remove_owner_file_if_present(&self.active_binding_path)
     }
 
     fn load_credential(
@@ -237,6 +466,123 @@ impl CredentialStore {
         remove_owner_file_if_present(&self.active_binding_path)
     }
 
+    pub fn local_admission_path(&self) -> PathBuf {
+        self.local_admission_path.clone()
+    }
+
+    /// Reads the gate while preserving missing or corrupt states for diagnostics.
+    pub fn load_local_admission(&self) -> Result<LocalAdmissionRecord, CredentialError> {
+        let bytes = read_owner_file(&self.local_admission_path)?;
+        if bytes.len() > 16 * 1024 {
+            return Err(CredentialError::TooLarge);
+        }
+        let record: LocalAdmissionRecord =
+            parse_strict_json(&bytes).map_err(|_| CredentialError::Malformed)?;
+        validate_local_admission_record(&record)?;
+        Ok(record)
+    }
+
+    /// Returns whether an exact active binding has a valid local admission record.
+    pub fn local_admission_is_open(
+        &self,
+        device_id: &str,
+        binding: &ActiveBinding,
+    ) -> Result<bool, CredentialError> {
+        let record = match self.load_local_admission() {
+            Ok(record) => record,
+            Err(CredentialError::Missing) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        Ok(record.state == LOCAL_ADMISSION_OPEN
+            && record.device_id.as_deref() == Some(device_id)
+            && record.binding_id.as_deref() == Some(binding.binding_id.as_str())
+            && record.binding_generation == Some(binding.generation))
+    }
+
+    /// Opens admission only for a validated active binding.
+    pub fn open_local_admission(&self, binding: &ActiveBinding) -> Result<(), CredentialError> {
+        validate_active_binding(binding)?;
+        let identity = self
+            .load_for_rotation()
+            .ok()
+            .filter(|credential| credential.device_id == binding.device_id)
+            .and_then(|credential| {
+                self.load_identity(
+                    credential.device_id.clone(),
+                    credential.release_profile.clone(),
+                    credential.credential_profile.clone(),
+                )
+                .ok()
+            })
+            .ok_or(CredentialError::Malformed)?;
+        let record = LocalAdmissionRecord {
+            version: 1,
+            state: LOCAL_ADMISSION_OPEN.to_owned(),
+            device_id: Some(identity.device_id),
+            device_generation: Some(identity.generation),
+            binding_id: Some(binding.binding_id.clone()),
+            binding_generation: Some(binding.generation),
+            updated_at_unix: unix_now(),
+        };
+        self.write_local_admission(&record)
+    }
+
+    /// Closes admission idempotently while retaining identity metadata for setup.
+    pub fn close_local_admission(&self) -> Result<(), CredentialError> {
+        self.write_local_admission(&self.local_admission_record(LOCAL_ADMISSION_CLOSED))
+    }
+
+    /// Marks the supervisor reusable but not executable after setup or repair.
+    pub fn ready_local_admission(&self) -> Result<(), CredentialError> {
+        self.write_local_admission(&self.local_admission_record(LOCAL_ADMISSION_READY))
+    }
+
+    fn local_admission_record(&self, state: &str) -> LocalAdmissionRecord {
+        let (device_id, device_generation) = self.local_identity_reference();
+        LocalAdmissionRecord {
+            version: 1,
+            state: state.to_owned(),
+            device_id,
+            device_generation,
+            binding_id: None,
+            binding_generation: None,
+            updated_at_unix: unix_now(),
+        }
+    }
+
+    fn local_identity_reference(&self) -> (Option<String>, Option<u64>) {
+        if let Ok(credential) = self.load_for_rotation() {
+            if let Ok(identity) = self.load_identity(
+                credential.device_id.clone(),
+                credential.release_profile,
+                credential.credential_profile,
+            ) {
+                return (Some(identity.device_id), Some(identity.generation));
+            }
+        }
+        if let Ok(metadata) = self.load_identity_metadata() {
+            if let Ok(identity) = self.load_identity(
+                metadata.device_id.clone(),
+                metadata.release_profile,
+                metadata.credential_profile,
+            ) {
+                return (Some(identity.device_id), Some(identity.generation));
+            }
+        }
+        (None, None)
+    }
+
+    fn write_local_admission(&self, record: &LocalAdmissionRecord) -> Result<(), CredentialError> {
+        validate_local_admission_record(record)?;
+        let bytes = serde_json::to_vec(record).map_err(|_| CredentialError::Malformed)?;
+        atomic_owner_write(
+            &self.directory,
+            &self.local_admission_path,
+            &bytes,
+            "local-admission",
+        )
+    }
+
     /// Store a private Ed25519 key separately from the relay credential.
     pub fn save_identity(&self, identity: &DeviceIdentity) -> Result<(), CredentialError> {
         let bytes = encode_identity(identity);
@@ -258,9 +604,7 @@ impl CredentialStore {
         )
     }
 
-    /// Create or recover the next same-device identity rotation. The pending
-    /// key is persisted before any network request so a lost Server response
-    /// can be retried with exactly the same generation and public keys.
+    /// Creates or recovers a rotation, persisting its key before any request.
     pub fn prepare_identity_rotation(
         &self,
         current: &DeviceIdentity,
@@ -313,9 +657,197 @@ impl CredentialStore {
         }
     }
 
-    /// Commit a Server-confirmed identity and credential rotation, then remove
-    /// the old binding handoff. A leftover pending file is deliberately kept on
-    /// any partial failure so the operation remains safely retryable.
+    pub fn load_pending_identity_rotation(
+        &self,
+        identity: &DeviceIdentity,
+    ) -> Result<Option<DeviceIdentity>, CredentialError> {
+        match load_identity_file(
+            &self.pending_key_rotation_path,
+            identity.device_id.clone(),
+            identity.release_profile.clone(),
+            identity.credential_profile.clone(),
+        ) {
+            Ok(pending) => Ok(Some(pending)),
+            Err(CredentialError::Missing) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Loads or creates rotation recovery state under the pre-request registration lock.
+    pub fn load_or_create_pending_rotation(
+        &self,
+        current: &DeviceIdentity,
+        next: &DeviceIdentity,
+        current_credential_revision: u64,
+        idempotency_key: Option<&str>,
+    ) -> Result<PendingRotation, CredentialError> {
+        if current_credential_revision == 0 {
+            return Err(CredentialError::RotationConflict);
+        }
+        let same_identity_scope = current.device_id == next.device_id
+            && current.release_profile == next.release_profile
+            && current.credential_profile == next.credential_profile;
+        let current_is_source = next.generation == current.generation.saturating_add(1);
+        let current_is_target = next.generation == current.generation
+            && next.public_key_b64() == current.public_key_b64()
+            && next.encryption_public_key_b64() == current.encryption_public_key_b64();
+        if !same_identity_scope || (!current_is_source && !current_is_target) {
+            return Err(CredentialError::RotationConflict);
+        }
+        match self.read_pending_rotation()? {
+            Some(existing) if pending_rotation_matches(&existing, current, next) => {
+                if current_credential_revision < existing.previous_credential_revision {
+                    return Err(CredentialError::RotationConflict);
+                }
+                if let Some(key) = idempotency_key {
+                    if key != existing.idempotency_key {
+                        return Err(CredentialError::RotationConflict);
+                    }
+                }
+                Ok(existing)
+            }
+            Some(_) => Err(CredentialError::RotationConflict),
+            None if current_is_source => {
+                let key = idempotency_key.map(str::to_owned).unwrap_or_else(|| {
+                    let mut bytes = [0_u8; 32];
+                    getrandom_bytes(&mut bytes);
+                    URL_SAFE_NO_PAD.encode(bytes)
+                });
+                if key.len() < 22
+                    || key.len() > 256
+                    || key
+                        .bytes()
+                        .any(|byte| !byte.is_ascii_graphic() || byte == b'"' || byte == b'\\')
+                {
+                    return Err(CredentialError::Malformed);
+                }
+                let metadata = PendingRotation {
+                    version: 1,
+                    device_id: current.device_id.clone(),
+                    current_generation: current.generation,
+                    target_generation: next.generation,
+                    previous_credential_revision: current_credential_revision,
+                    old_signing_public_key_sha256: public_value_sha256(&current.public_key_b64()),
+                    old_encryption_public_key_sha256: public_value_sha256(
+                        &current.encryption_public_key_b64(),
+                    ),
+                    target_signing_public_key_sha256: public_value_sha256(&next.public_key_b64()),
+                    target_encryption_public_key_sha256: public_value_sha256(
+                        &next.encryption_public_key_b64(),
+                    ),
+                    idempotency_key: key,
+                    created_at_unix: unix_now(),
+                };
+                let bytes =
+                    serde_json::to_vec(&metadata).map_err(|_| CredentialError::Malformed)?;
+                atomic_owner_write(
+                    &self.directory,
+                    &self.pending_rotation_metadata_path,
+                    &bytes,
+                    "pending rotation metadata",
+                )?;
+                Ok(metadata)
+            }
+            None => Err(CredentialError::RotationConflict),
+        }
+    }
+
+    pub fn load_pending_rotation(&self) -> Result<Option<PendingRotation>, CredentialError> {
+        self.read_pending_rotation()
+    }
+
+    fn read_pending_rotation(&self) -> Result<Option<PendingRotation>, CredentialError> {
+        let bytes = match read_owner_file(&self.pending_rotation_metadata_path) {
+            Ok(bytes) => bytes,
+            Err(CredentialError::Missing) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let value: PendingRotation =
+            parse_strict_json(&bytes).map_err(|_| CredentialError::Malformed)?;
+        if value.version != 1
+            || validate_api_id(&value.device_id).is_err()
+            || value.current_generation == 0
+            || value.target_generation != value.current_generation.saturating_add(1)
+            || value.previous_credential_revision == 0
+            || value.created_at_unix == 0
+            || value.idempotency_key.len() < 22
+            || value.idempotency_key.len() > 256
+            || value
+                .idempotency_key
+                .bytes()
+                .any(|byte| !byte.is_ascii_graphic() || byte == b'"' || byte == b'\\')
+            || value.old_signing_public_key_sha256.len() != 64
+            || value.old_encryption_public_key_sha256.len() != 64
+            || value.target_signing_public_key_sha256.len() != 64
+            || value.target_encryption_public_key_sha256.len() != 64
+            || !value
+                .old_signing_public_key_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || !value
+                .old_encryption_public_key_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || !value
+                .target_signing_public_key_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || !value
+                .target_encryption_public_key_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(CredentialError::Malformed);
+        }
+        Ok(Some(value))
+    }
+
+    /// Finalizes committed rotation only after validating all recovery state.
+    pub fn finish_interrupted_identity_rotation(
+        &self,
+        identity: &DeviceIdentity,
+        credential: &CommunityCredential,
+    ) -> Result<bool, CredentialError> {
+        let Some(rotation) = self.read_pending_rotation()? else {
+            return Ok(false);
+        };
+        if self.load_pending_identity_rotation(identity)?.is_some()
+            || rotation.device_id != identity.device_id
+            || rotation.target_generation != identity.generation
+            || rotation.target_signing_public_key_sha256
+                != public_value_sha256(&identity.public_key_b64())
+            || rotation.target_encryption_public_key_sha256
+                != public_value_sha256(&identity.encryption_public_key_b64())
+            || credential.device_id != identity.device_id
+            || credential.release_profile != identity.release_profile
+            || credential.credential_profile != identity.credential_profile
+            || credential.revision <= rotation.previous_credential_revision
+        {
+            return Ok(false);
+        }
+        let metadata = self.load_identity_metadata()?;
+        if metadata.device_id != identity.device_id
+            || metadata.server_url != credential.server_url
+            || metadata.release_profile != identity.release_profile
+            || metadata.credential_profile != identity.credential_profile
+        {
+            return Err(CredentialError::RotationConflict);
+        }
+        match self.load_active_binding(&identity.device_id) {
+            Ok(_) => return Err(CredentialError::RotationConflict),
+            Err(CredentialError::Missing) => {}
+            Err(error) => return Err(error),
+        }
+        self.clear_pending_rotation_metadata()?;
+        Ok(true)
+    }
+
+    /// Clears rotation metadata only after the new identity is committed.
+    pub fn clear_pending_rotation_metadata(&self) -> Result<(), CredentialError> {
+        remove_owner_file_if_present(&self.pending_rotation_metadata_path)
+    }
+
+    /// Commits Server-confirmed rotation while retaining pending state on partial failure.
     pub fn commit_identity_rotation(
         &self,
         identity: &DeviceIdentity,
@@ -336,14 +868,17 @@ impl CredentialStore {
             return Err(CredentialError::RotationConflict);
         }
         self.save_identity(identity)?;
+        self.save_identity_metadata(identity, &credential.server_url)?;
         self.save(credential)?;
         self.clear_active_binding()?;
-        remove_owner_file_if_present(&self.pending_key_rotation_path)
+        remove_owner_file_if_present(&self.pending_key_rotation_path)?;
+        self.clear_pending_rotation_metadata()
     }
 
     /// Discard a locally prepared rotation only when it has not been submitted.
     pub fn discard_identity_rotation(&self) -> Result<(), CredentialError> {
-        remove_owner_file_if_present(&self.pending_key_rotation_path)
+        remove_owner_file_if_present(&self.pending_key_rotation_path)?;
+        self.clear_pending_rotation_metadata()
     }
 
     fn decode_identity(
@@ -378,9 +913,7 @@ impl CredentialStore {
                 .map_err(|_| CredentialError::Malformed)?;
             (StaticSecret::from(encryption), false)
         } else {
-            // A legacy identity has no independent encryption key.  Generate one
-            // so callers can inspect/status the identity, but require a fresh
-            // registration before it is accepted for relay execution.
+            // A generated legacy encryption key permits inspection, not relay execution.
             (StaticSecret::random(), true)
         };
         Ok(DeviceIdentity {
@@ -396,13 +929,19 @@ impl CredentialStore {
 
     /// Remove credentials after explicit revoke/unenroll.
     pub fn clear(&self) -> Result<(), CredentialError> {
+        // Retain the lock inode while clearing identity so concurrent ensure cannot bypass it.
+        self.close_local_admission()?;
         let paths = [
             &self.credential_path,
             &self.key_path,
+            &self.identity_metadata_path,
             &self.pending_key_rotation_path,
+            &self.pending_rotation_metadata_path,
+            &self.pending_registration_path,
             &self.policy_path,
             &self.policy_lock_path,
             &self.active_binding_path,
+            &self.local_admission_path,
         ];
         for path in paths {
             match fs::symlink_metadata(path) {
@@ -424,6 +963,28 @@ impl CredentialStore {
         }
         Ok(())
     }
+}
+
+fn pending_rotation_matches(
+    existing: &PendingRotation,
+    current: &DeviceIdentity,
+    next: &DeviceIdentity,
+) -> bool {
+    let target_matches = existing.device_id == current.device_id
+        && existing.target_generation == next.generation
+        && existing.target_signing_public_key_sha256 == public_value_sha256(&next.public_key_b64())
+        && existing.target_encryption_public_key_sha256
+            == public_value_sha256(&next.encryption_public_key_b64());
+    let source_matches = existing.current_generation == current.generation
+        && existing.old_signing_public_key_sha256 == public_value_sha256(&current.public_key_b64())
+        && existing.old_encryption_public_key_sha256
+            == public_value_sha256(&current.encryption_public_key_b64());
+    let installed_target_matches = existing.target_generation == current.generation
+        && existing.target_signing_public_key_sha256
+            == public_value_sha256(&current.public_key_b64())
+        && existing.target_encryption_public_key_sha256
+            == public_value_sha256(&current.encryption_public_key_b64());
+    target_matches && (source_matches || installed_target_matches)
 }
 
 fn encode_identity(identity: &DeviceIdentity) -> Vec<u8> {
@@ -471,4 +1032,57 @@ fn validate_active_binding(binding: &ActiveBinding) -> Result<(), CredentialErro
         return Err(CredentialError::Malformed);
     }
     Ok(())
+}
+
+fn validate_local_admission_record(record: &LocalAdmissionRecord) -> Result<(), CredentialError> {
+    if record.version != 1
+        || !matches!(
+            record.state.as_str(),
+            LOCAL_ADMISSION_CLOSED | LOCAL_ADMISSION_READY | LOCAL_ADMISSION_OPEN
+        )
+        || record.updated_at_unix == 0
+    {
+        return Err(CredentialError::Malformed);
+    }
+    if let Some(device_id) = record.device_id.as_deref() {
+        validate_api_id(device_id)?;
+    }
+    if let Some(binding_id) = record.binding_id.as_deref() {
+        validate_api_id(binding_id)?;
+    }
+    if record.device_generation == Some(0) || record.binding_generation == Some(0) {
+        return Err(CredentialError::Malformed);
+    }
+    match record.state.as_str() {
+        LOCAL_ADMISSION_OPEN => {
+            if record.device_id.is_none()
+                || record.device_generation.is_none()
+                || record.binding_id.is_none()
+                || record.binding_generation.is_none()
+            {
+                return Err(CredentialError::Malformed);
+            }
+        }
+        LOCAL_ADMISSION_CLOSED | LOCAL_ADMISSION_READY => {
+            if record.binding_id.is_some() || record.binding_generation.is_some() {
+                return Err(CredentialError::Malformed);
+            }
+        }
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+fn valid_stored_identity_metadata(metadata: &StoredIdentityMetadata) -> bool {
+    metadata.version == 1
+        && validate_api_id(&metadata.device_id).is_ok()
+        && canonical_server_url(&metadata.server_url)
+            .is_ok_and(|value| value == metadata.server_url)
+        && !metadata.release_profile.is_empty()
+        && metadata.release_profile.len() <= 128
+        && metadata
+            .release_profile
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+        && metadata.credential_profile == "community_file"
 }

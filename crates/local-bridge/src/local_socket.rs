@@ -1,6 +1,7 @@
 //! Local bridge local socket internals.
 
 use super::*;
+use ego_browser_bridge_protocol::PROTOCOL_VERSION;
 
 pub(super) async fn run_unix_socket(args: BridgeArgs) -> Result<(), BridgeError> {
     let socket = args.socket;
@@ -69,7 +70,7 @@ async fn handle_connection(
                 Ok(value) => value,
                 Err(error) => {
                     let response = serde_json::json!({
-                        "protocol": "ego-browser-bridge-v1",
+                        "protocol": PROTOCOL_VERSION,
                         "type": "permit_response",
                         "status": "error",
                         "error": error.to_string(),
@@ -109,7 +110,7 @@ async fn handle_connection(
         }
         "doctor" => {
             let response = serde_json::json!({
-                "protocol": "ego-browser-bridge-v1",
+                "protocol": PROTOCOL_VERSION,
                 "type": "doctor_response",
                 "status": "ok",
                 "response": {
@@ -125,7 +126,7 @@ async fn handle_connection(
         "reload" => {
             supervisor.cancel();
             let response = serde_json::json!({
-                "protocol": "ego-browser-bridge-v1",
+                "protocol": PROTOCOL_VERSION,
                 "type": "reload_response",
                 "status": "ok",
                 "response": {"cancelled": true}

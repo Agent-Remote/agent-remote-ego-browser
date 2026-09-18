@@ -17,6 +17,10 @@
 
 ## 发布状态
 
+当前源码树是尚未发布的 `0.1.12` candidate。在 tag-bound workflow、Sigstore evidence、
+root composition 和 canary 全部完成前，必须按 `release_published=false`、
+`production_ready=false` 处理。
+
 stable Bridge `0.1.11` release 已记录 `production_ready=true`、
 `release_published=true`，且 `readiness_blockers=[]`。root composition 会独立固定其已认证的
 准确 Bridge release。
@@ -68,7 +72,7 @@ Node runtime broker -> Server opaque WebSocket relay
 
 | 范围 | 要求 |
 | --- | --- |
-| Bridge、Device Client、远端 wrapper | `0.1.11` |
+| Bridge、Device Client、远端 wrapper 源码 candidate | `0.1.12` |
 | 协议 | `ego-browser-bridge-v1` |
 | 官方 Skill | `1.2.3` |
 | 本地 `ego-browser` runtime | `0.4.7.4` |
@@ -78,9 +82,27 @@ Node runtime broker -> Server opaque WebSocket relay
 
 兼容条件必须准确匹配。未知、不完整或过期的 capability 会 fail closed；不会回退到远端浏览器、GUI control channel、raw CDP transport 或自动选择的 session。
 
-## 安装
+## 受管生命周期
 
-安装 stable `0.1.11` macOS release 时，必须同时使用 archive、严格 aggregate manifest、两个 Sigstore bundle，以及从独立可信渠道取得的 signing-certificate SHA-256：
+安装当前 `agent-remote` CLI 并完成登录后，普通 macOS 流程只有：
+
+```sh
+agent-remote ego-browser setup
+agent-remote ego-browser connect
+```
+
+`setup` 自动发现已配置 Server、保存的凭据、已验证 release profile 与证书 pin，复用现有
+Device identity 完成 ensure，且不会 claim session。`connect` 会单独列出候选，并要求用户明确
+确认 full-trust。普通用户无需复制 Server URL、registration token、Device ID、binding
+generation 或证书摘要。
+
+日常生命周期命令包括 `status`、`repair`、`upgrade`、`pause`、`resume`、`stop`、`remove`
+与 `forget-this-mac`。pause 保留可恢复的 binding；stop 是终态，之后必须重新 `connect`。普通
+Bridge 升级会保留 Device ID 与 key generation。
+
+## 高级 release 安装
+
+下面的手动 archive 命令是底层 release/operator 入口。安装 stable `0.1.11` macOS release 时，必须同时使用 archive、严格 aggregate manifest、两个 Sigstore bundle，以及从独立可信渠道取得的 signing-certificate SHA-256：
 
 ```sh
 ./installer/install-macos.sh \
@@ -96,16 +118,16 @@ Node runtime broker -> Server opaque WebSocket relay
 
 前置条件、注册、policy 设置、可观测性、恢复和卸载流程见[安装与运维](docs/operations.zh-CN.md)。
 
-### 一键安装
+### 高级兼容 bootstrap
 
-在已登录的 macOS 用户终端中，可以用下面的命令完成依赖检查、ego lite 安装（缺失时）、签名校验和 Bridge 安装：
+兼容 bootstrap 可完成依赖检查、ego lite 安装（缺失时）、签名校验和 Bridge 安装：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
   bash -s -- --version 0.1.11 --confirm-local-trust
 ```
 
-如果还要在安装后注册并绑定一个明确的远端 session：
+旧版客户端和自定义自动化还可以在安装后注册并绑定一个明确的远端 session：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
@@ -118,14 +140,14 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
     --confirm-full-trust
 ```
 
-如果 `agent-remote` CLI 已经登录，bootstrap 会自动发现它并调用 `agent-remote ego-browser register`，复用已配置的服务器和凭据，token 只通过 stdin 传递。此时可以省略 `--server` 和 `--token`：
+在该兼容 bootstrap 中，若 `agent-remote` CLI 已经登录，可以调用高级入口 `agent-remote ego-browser register`，复用已配置的服务器和凭据，token 只通过 stdin 传递。此时可以省略 `--server` 和 `--token`：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
   bash -s -- --version 0.1.11 --confirm-local-trust
 ```
 
-需要同时 claim 明确 session 时，再加 `--session-id EXACT_TOOL_SESSION_ID --confirm-full-trust`。脚本会自动安装缺失的 Homebrew `cosign`，先校验 release archive 和 manifest 后才执行归档内安装器，并校验固定版本的官方 ego lite 安装脚本。首次运行仍需在 ego lite GUI 中完成 onboarding；脚本不会自动猜选候选 session。若检测到旧版 CLI 或 Device Client，则回退到显式 `--server`/`--token` 流程。手动 token 应使用短期凭据，且不要提交到 shell 历史或聊天记录。
+只有明确的兼容自动化才添加 `--session-id EXACT_TOOL_SESSION_ID --confirm-full-trust`。脚本会自动安装缺失的 Homebrew `cosign`，先校验 release archive 和 manifest 后才执行归档内安装器，并校验固定版本的官方 ego lite 安装脚本。首次运行仍需在 ego lite GUI 中完成 onboarding；脚本不会自动猜选候选 session。若检测到旧版 CLI 或 Device Client，则回退到显式 `--server`/`--token` 流程。该 argv 形式只能用于隔离的旧版维护环境；手动 token 应使用短期凭据，且不要提交到 shell 历史或聊天记录。
 
 脚本内置当前持久项目证书 pin。证书轮换或使用自定义仓库时，需额外传入 `--certificate-sha256`。完整选项见：
 
@@ -133,9 +155,9 @@ curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-brows
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | bash -s -- --help
 ```
 
-## 命令
+## 高级兼容命令
 
-注册独立 Device Client，并绑定一个准确的运行中 tool session：
+上面的受管 `setup` 与 `connect` 是默认流程。底层诊断、自定义 release 或旧版自动化可以按以下方式注册独立 Device Client，并绑定一个准确的运行中 tool session：
 
 ```sh
 ego-browser-device register \
@@ -148,7 +170,7 @@ ego-browser-device claim EXACT_TOOL_SESSION_ID --confirm
 ego-browser-device status BINDING_ID
 ```
 
-完成 `agent-remote login` 后，也可以复用 CLI 凭据存储完成注册：
+完成 `agent-remote login` 后，高级注册入口也可以复用 CLI 凭据存储：
 
 ```sh
 agent-remote ego-browser register \

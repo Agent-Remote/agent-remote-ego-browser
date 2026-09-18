@@ -34,6 +34,18 @@ ticket、脚本和 key 不从项目文件或任意环境变量覆盖项读取。
 
 ## 凭据
 
+公开状态模型始终区分 `installed`、`enabled`、`registered`、`available` 与 `connected`。
+本机安装与启用状态不能从 Server Device 记录推断，enrollment 不等于 execution admission，
+只有 `connected` 才允许执行。Server execution admission 与 Bridge local admission 是独立的
+fail-closed 闸门；前者关闭时，enrollment、credential refresh、状态查询与撤销仍然可用。
+无法观察的本机事实返回 `null`，不能从缓存控制面状态猜测。
+
+受管 Node join 流程会在签发 code 前，在控制工作站持久化不可预测且 owner-only 的
+`exchange_id`。短期加入码只通过 SSH stdin 发送一次给 `--join-code-stdin`，绝不进入 argv、
+URL、环境变量、日志、输出或持久状态。交换响应丢失时，相同 `exchange_id` 可以在不重新发送
+code 的情况下取回同一消费结果。join profile 的 `ego_browser_enabled` 只是配置意图，不能
+证明 Server execution admission 已打开。
+
 community profile 在 `~/.config/agent-remote-ego-browser` 保存 Device Client 身份、policy、
 active-binding handoff 和短期 credential。目录必须属于当前 UID 且 mode 为 `0700`；敏感
 文件必须属于当前用户、为单 hard-link regular file 且 mode 为 `0600`。符号链接、额外
@@ -74,6 +86,16 @@ supervisor 创建进程组，限制执行与输出，并在超时、撤销、lea
 `task_space_takeover` 原因请求 generation-bound Server pause。monitor 故障使用
 `task_space_monitor_unavailable`；pause 请求失败不会撤销本地 revoke。恢复必须再次明确
 确认 full trust 并创建新 generation，任何组件都不会自动 claim 或 takeover 该空间。
+
+用户 `pause` 与用户 `stop` 都会关闭 local admission，但两者不能互换。pause 保留 binding 与
+owner-only paused handoff，供再次明确确认后以新 `binding_generation` resume。stop 是终态，
+会清除 handoff，之后必须重新 connect；旧 binding 不能 resume。
+
+同 UID Device Client socket 会明确表达这一区别。`EGB1\n` 表示 local admission 打开；
+`EGB0\n` 表示有意关闭。收到 `EGB0` 时，Bridge 会 revoke 受监管执行，但不会自动调用远端
+stop endpoint 或清除生命周期 handoff，因此 pause 仍是 pause。只有意外 EOF、超时、畸形输入
+或 observer 故障才触发 fail-closed peer-loss 顺序：先在本机 revoke 并终止执行，再清除 active
+handoff，最后尝试 generation-bound 远端 stop。远端动作失败绝不会重新打开 local admission。
 
 ## 日志与事件响应
 

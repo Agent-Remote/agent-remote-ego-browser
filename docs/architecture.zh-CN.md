@@ -54,6 +54,28 @@ ID、查看全信任警告并确认 claim。Server 将唯一合法的 Task Space
 从该 handoff 加载 label，并拒绝默认 label 或声明的 Task Space scope 不一致的加密请求。
 只有 lease 健康、能力匹配且状态为 `active` 的 binding 可以执行请求。
 
+## 统一机器状态
+
+所有面向用户的客户端统一投影五个状态。`installed` 表示本机 release、manifest、签名和
+文件系统检查通过；`enabled` 表示经过本机验证的 Bridge release 已被明确启用，不包含 Server
+全局开关；`registered` 表示本机 identity 对应一个 active Server Device；`available` 表示上述
+状态以及 runtime/profile/policy 兼容性、服务健康、Server execution admission 和
+`local_admission_ready` 均允许开始 claim；`connected` 还要求用户确认的 active binding、健康
+lease、binding admission 与打开的 local admission，并且只有该状态允许执行。
+
+Server execution admission 与 Bridge local admission 相互独立。Server 闸门可以拒绝 claim、
+relay hello 与执行，同时继续允许安装、enrollment、credential refresh、状态查询和撤销。
+即使 `local_admission_ready=true`，local admission 在 claim 前也保持关闭。Server 或 Admin
+进程无法观察本机事实时返回 `null`；不得从 Device 列表推断 `installed`，不得把 enrollment
+折叠进 `enabled`，也不得把 execute 成功等同于 `available`。
+
+Node enrollment 虽然不在本 workspace 的 runtime 进程内，也遵循同一边界。已登录的控制工作站
+在签发短期加入码前持久化 owner-only `exchange_id`，随后只在首次 SSH stdin 中把 code 交给
+`agent-remote-node install --join-code-stdin`。响应丢失时，控制工作站与 Node 使用相同
+`exchange_id` 且不再发送 code，从 Server 恢复同一结果。code 与最终 Node token 都不得进入
+argv、URL、环境变量、输出或 exchange state。join profile 中的 `ego_browser_enabled` 只是
+配置意图，不能打开 Server execution admission。
+
 ## 生命周期
 
 binding 的 lease 为 60 秒，每 20 秒续期；续期失败宽限 10 秒，absolute TTL 为 8 小时。
@@ -76,7 +98,9 @@ user-owned 不会触发停止；monitor 只有先观察到 `ownership="agent"` �
 Bridge 死亡会关闭 pipe 并终止 monitor runtime，不会留下独立 browser client。
 
 暂停、停止、撤销、tool session 终止、lease 过期、relay 断开、policy 漂移和 generation
-变化都会停止新请求。Bridge 从外部终止受监管进程组，结果未知的脚本绝不自动重放。
+变化都会停止新请求。用户 `pause` 会保留 binding 与 owner-only paused handoff，之后经单独
+确认的 `resume` 推进 `binding_generation`；用户 `stop` 是终态，会清除 handoff，之后必须
+重新 `connect`，不能 resume。Bridge 从外部终止受监管进程组，结果未知的脚本绝不自动重放。
 已经发生的副作用无法回滚；主动脱离监管的同 UID 进程不在 supervisor 保证范围内。
 
 Task Space 被接管时，Bridge 先 revoke 本地 admission 并等待受监管执行终止，再要求
@@ -87,10 +111,14 @@ resume，并推进 generation。恢复时可以使用 ego lite 原生 claim/take
 交还 agent；monitor 与 Bridge 都不会自动 claim 或 takeover。
 
 独立 Device Client 同时是本地授权存活 peer。其当前 UID 所有、mode `0600` 的 Unix socket
-每 2 秒发送固定 heartbeat。Bridge 在 connect 前后检查 socket identity、校验 peer UID、
-要求首个 heartbeat，并持续执行 5 秒超时。peer 丢失时严格 fail closed：先 revoke supervisor
-并终止受监管执行，再清除本地 active-binding handoff，最后最多用 10 秒尝试按 generation
-停止 Server binding。即使服务端 stop 无法确认，本地 admission 也不会恢复。
+在 local admission 打开时发送 `EGB1\n`，在有意关闭时发送 `EGB0\n`。Bridge 在 connect
+前后检查 socket identity、校验 peer UID，并要求首个 frame。收到 `EGB0` 时，Bridge 会 revoke
+supervisor 并终止受监管执行，但不会清除生命周期 handoff 或发起远端 stop；对应的
+pause/stop/remove/forget 命令拥有该决定权。因此本机 `pause` 不能被静默升级为 terminal stop。
+
+EOF、畸形 frame、5 秒超时或 observer 故障才表示意外 peer 丢失。该路径严格 fail closed：
+先 revoke supervisor 并终止受监管执行，再清除本地 active-binding handoff，最后最多用 10 秒
+尝试按 generation 停止 Server binding。即使服务端 stop 无法确认，本地 admission 也不会恢复。
 
 ## 本地数据
 

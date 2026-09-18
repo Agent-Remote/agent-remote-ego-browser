@@ -2,6 +2,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -10,13 +12,14 @@ use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 use ego_browser_bridge_protocol::{
     device_proof_message, is_dedicated_task_space, parse_strict_json,
     verify_learning_bundle_details, Allowlist, AllowlistLimits, DeviceProofContext,
-    VerifiedLearningBundle, TRUSTED_LEARNING_BUNDLE_PUBLIC_KEY,
+    VerifiedLearningBundle, COMMUNITY_PROFILE_ID, TRUSTED_LEARNING_BUNDLE_PUBLIC_KEY,
 };
 
 mod api;
@@ -24,8 +27,148 @@ mod credential_store;
 mod identity;
 
 const MAX_CREDENTIAL_BYTES: u64 = 64 * 1024;
+/// Owner-only execution gate shared by the CLI and Bridge; invalid state is closed.
+pub const LOCAL_ADMISSION_FILE_NAME: &str = "ego-browser-local-admission.json";
+pub const LOCAL_ADMISSION_CLOSED: &str = "closed";
+pub const LOCAL_ADMISSION_READY: &str = "ready";
+pub const LOCAL_ADMISSION_OPEN: &str = "open";
+// Only known state files are migrated; unknown files remain untouched.
+const DEVICE_STORE_STATE_FILES: &[&str] = &[
+    "ego-browser-credential.json",
+    "ego-browser-device-key.bin",
+    "ego-browser-device-metadata.json",
+    "ego-browser-device-key.pending.bin",
+    "ego-browser-pending-rotation.json",
+    "ego-browser-pending-registration.json",
+    "ego-browser-policy.json",
+    ".ego-browser-policy.lock",
+    "ego-browser-active-binding.json",
+    "ego-browser-local-admission.json",
+    ".ego-browser-registration.lock",
+];
+
+/// Migrates known legacy state without overwriting a canonical store.
+pub fn migrate_legacy_device_store(legacy: &Path, canonical: &Path) -> Result<(), CredentialError> {
+    if legacy == canonical {
+        return Ok(());
+    }
+    let legacy_metadata = match fs::symlink_metadata(legacy) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(CredentialError::Io(error)),
+    };
+    validate_store_directory_metadata(&legacy_metadata)?;
+    validate_legacy_store_entries(legacy)?;
+
+    match fs::symlink_metadata(canonical) {
+        Ok(metadata) => validate_store_directory_metadata(&metadata)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(parent) = canonical.parent() {
+                fs::create_dir_all(parent).map_err(CredentialError::Io)?;
+            }
+            match fs::create_dir(canonical) {
+                Ok(()) => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        fs::set_permissions(canonical, fs::Permissions::from_mode(0o700))
+                            .map_err(CredentialError::Io)?;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(CredentialError::Io(error)),
+            }
+            let metadata = fs::symlink_metadata(canonical).map_err(CredentialError::Io)?;
+            validate_store_directory_metadata(&metadata)?;
+        }
+        Err(error) => return Err(CredentialError::Io(error)),
+    }
+
+    let mut movable = Vec::new();
+    for entry in fs::read_dir(legacy).map_err(CredentialError::Io)? {
+        let entry = entry.map_err(CredentialError::Io)?;
+        let name = entry.file_name();
+        let name = name.to_str().ok_or(CredentialError::InvalidPath)?;
+        let source = entry.path();
+        let metadata = fs::symlink_metadata(&source).map_err(CredentialError::Io)?;
+        if name == "device-service.sock" {
+            // Never migrate a live service socket.
+            if metadata.file_type().is_symlink() || !is_socket_file_type(&metadata) {
+                return Err(CredentialError::InvalidPath);
+            }
+            continue;
+        }
+        if !DEVICE_STORE_STATE_FILES.contains(&name) {
+            continue;
+        }
+        validate_owner_file_metadata(&metadata)?;
+        let destination = canonical.join(name);
+        if fs::symlink_metadata(&destination).is_ok() {
+            return Err(CredentialError::InvalidPath);
+        }
+        movable.push((source, destination));
+    }
+
+    for (source, destination) in movable {
+        fs::rename(source, destination).map_err(CredentialError::Io)?;
+    }
+    let _ = fs::remove_dir(legacy);
+    Ok(())
+}
+
+fn validate_legacy_store_entries(legacy: &Path) -> Result<(), CredentialError> {
+    for entry in fs::read_dir(legacy).map_err(CredentialError::Io)? {
+        let entry = entry.map_err(CredentialError::Io)?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| CredentialError::InvalidPath)?;
+        let metadata = fs::symlink_metadata(entry.path()).map_err(CredentialError::Io)?;
+        if name == "device-service.sock" {
+            if metadata.file_type().is_symlink() || !is_socket_file_type(&metadata) {
+                return Err(CredentialError::InvalidPath);
+            }
+            continue;
+        }
+        if DEVICE_STORE_STATE_FILES.contains(&name.as_str()) {
+            validate_owner_file_metadata(&metadata)?;
+        } else if metadata.file_type().is_symlink() {
+            return Err(CredentialError::InvalidPath);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn is_socket_file_type(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_socket()
+}
+
+#[cfg(not(unix))]
+fn is_socket_file_type(_metadata: &fs::Metadata) -> bool {
+    false
+}
+
+fn validate_store_directory_metadata(metadata: &fs::Metadata) -> Result<(), CredentialError> {
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(CredentialError::InvalidPath);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        if metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.permissions().mode() & 0o077 != 0
+        {
+            return Err(CredentialError::UnsafePermissions);
+        }
+    }
+    Ok(())
+}
+/// Enrollment retry window; expired recovery state is retained.
+pub const DEFAULT_PENDING_REGISTRATION_TTL_SECS: u64 = 24 * 60 * 60;
 /// Maximum size accepted for a user registration credential.
 pub const TOKEN_MAX_BYTES: usize = 4096;
+pub const SUPPORTED_CREDENTIAL_PROFILE: &str = "community_file";
 const MAX_ALLOWLIST_ROOTS: usize = 128;
 const CONTROL_API_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTROL_API_TIMEOUT: Duration = Duration::from_secs(15);
@@ -53,9 +196,104 @@ pub struct CommunityCredential {
     pub token: String,
     #[serde(default)]
     pub credential_id: Option<String>,
+    #[serde(default = "default_release_profile")]
+    pub release_profile: String,
     pub credential_profile: String,
     pub expires_at_unix: u64,
     pub revision: u64,
+}
+
+/// Non-secret lifecycle metadata; tokens and public keys are omitted.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LocalDeviceMetadata {
+    pub device_id: String,
+    pub device_generation: u64,
+    pub server_url: String,
+    pub release_profile: String,
+    pub credential_profile: String,
+    pub credential_revision: u64,
+    pub credential_expires_at_unix: u64,
+}
+
+/// Non-secret identity metadata retained after credential retirement.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct StoredIdentityMetadata {
+    pub version: u32,
+    pub device_id: String,
+    pub server_url: String,
+    pub release_profile: String,
+    pub credential_profile: String,
+}
+
+fn default_release_profile() -> String {
+    COMMUNITY_PROFILE_ID.to_owned()
+}
+
+/// Secret-free recovery state for one enrollment request.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PendingRegistration {
+    pub version: u32,
+    pub device_id: String,
+    pub device_generation: u64,
+    pub server_url: String,
+    pub release_profile: String,
+    pub credential_profile: String,
+    #[serde(default = "default_enrollment_mode")]
+    pub enrollment_mode: String,
+    pub signing_public_key_sha256: String,
+    pub encryption_public_key_sha256: String,
+    pub idempotency_key: String,
+    pub created_at_unix: u64,
+    #[serde(default)]
+    pub last_error_code: Option<String>,
+}
+
+fn default_enrollment_mode() -> String {
+    "initial".to_owned()
+}
+
+/// Secret-free rotation state; the pending private key remains owner-only.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PendingRotation {
+    pub version: u32,
+    pub device_id: String,
+    pub current_generation: u64,
+    pub target_generation: u64,
+    pub previous_credential_revision: u64,
+    pub old_signing_public_key_sha256: String,
+    pub old_encryption_public_key_sha256: String,
+    pub target_signing_public_key_sha256: String,
+    pub target_encryption_public_key_sha256: String,
+    pub idempotency_key: String,
+    pub created_at_unix: u64,
+}
+
+/// Reads a bounded retry window, falling back to 24 hours.
+pub fn pending_registration_ttl_secs() -> u64 {
+    std::env::var("EGO_BROWSER_PENDING_REGISTRATION_TTL_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0 && *value <= 30 * 24 * 60 * 60)
+        .unwrap_or(DEFAULT_PENDING_REGISTRATION_TTL_SECS)
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+impl PendingRegistration {
+    pub fn is_expired(&self, now_unix: u64) -> bool {
+        self.created_at_unix
+            .checked_add(pending_registration_ttl_secs())
+            .is_none_or(|deadline| now_unix >= deadline)
+    }
 }
 
 /// Owner-only handoff from an explicit Device Client claim to the Bridge.
@@ -69,6 +307,23 @@ pub struct ActiveBinding {
     pub task_space_label: String,
     pub authorization_mode: String,
     pub user_confirmation: bool,
+}
+
+/// Execution gate scoped to exact identity and binding generations.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LocalAdmissionRecord {
+    pub version: u32,
+    pub state: String,
+    #[serde(default)]
+    pub device_id: Option<String>,
+    #[serde(default)]
+    pub device_generation: Option<u64>,
+    #[serde(default)]
+    pub binding_id: Option<String>,
+    #[serde(default)]
+    pub binding_generation: Option<u64>,
+    pub updated_at_unix: u64,
 }
 
 /// Owner-controlled local policy persisted independently from credentials.
@@ -350,10 +605,25 @@ pub struct CredentialStore {
     directory: PathBuf,
     credential_path: PathBuf,
     key_path: PathBuf,
+    identity_metadata_path: PathBuf,
     pending_key_rotation_path: PathBuf,
+    pending_rotation_metadata_path: PathBuf,
+    pending_registration_path: PathBuf,
+    registration_lock_path: PathBuf,
     policy_path: PathBuf,
     policy_lock_path: PathBuf,
     active_binding_path: PathBuf,
+    local_admission_path: PathBuf,
+}
+
+pub struct RegistrationLock {
+    _file: File,
+}
+
+impl std::fmt::Debug for RegistrationLock {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("RegistrationLock(..)")
+    }
 }
 
 /// Minimal browser binding API client.
@@ -416,6 +686,12 @@ fn validate_api_id(value: &str) -> Result<(), CredentialError> {
 
 fn valid_community_credential(credential: &CommunityCredential, now_unix: Option<u64>) -> bool {
     credential.version == 1
+        && !credential.release_profile.is_empty()
+        && credential.release_profile.len() <= 128
+        && credential
+            .release_profile
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
         && credential.credential_profile == "community_file"
         && validate_api_id(&credential.device_id).is_ok()
         && canonical_server_url(&credential.server_url)
@@ -432,6 +708,11 @@ fn valid_community_credential(credential: &CommunityCredential, now_unix: Option
         && credential.revision > 0
 }
 
+pub fn public_value_sha256(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 async fn decode_response(
     response: reqwest::Response,
 ) -> Result<serde_json::Value, CredentialError> {
@@ -441,6 +722,16 @@ async fn decode_response(
         .await
         .map_err(|_| CredentialError::Network)?;
     if status != StatusCode::OK && !status.is_success() {
+        if let Some(code) = body
+            .pointer("/error/code")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty() && value.len() <= 96)
+        {
+            return Err(CredentialError::ApiCode {
+                status: status.as_u16(),
+                code: code.to_owned(),
+            });
+        }
         return Err(CredentialError::Api(status.as_u16()));
     }
     Ok(body)
@@ -579,10 +870,23 @@ pub enum CredentialError {
     PolicyInvalid,
     PolicyConflict,
     RotationConflict,
+    /// Local release evidence is incompatible.
+    CompatibilityMismatch,
+    /// Enrollment recovery requires explicit action after its retry window.
+    PendingExpired,
+    /// A retained identity belongs to another control-plane origin.
+    IdentityOriginConflict,
+    UnsupportedCredentialProfile,
+    LocalLockBusy,
     LearningBundleInvalid,
     TooLarge,
     Network,
     Api(u16),
+    /// A stable operational error returned by a control-plane endpoint.
+    ApiCode {
+        status: u16,
+        code: String,
+    },
     Io(std::io::Error),
 }
 
@@ -597,10 +901,75 @@ impl CredentialError {
             Self::PolicyInvalid => "policy_invalid",
             Self::PolicyConflict => "policy_conflict",
             Self::RotationConflict => "rotation_conflict",
+            Self::CompatibilityMismatch => "compatibility_mismatch",
+            Self::PendingExpired => "pending_expired",
+            Self::IdentityOriginConflict => "identity_origin_conflict",
+            Self::UnsupportedCredentialProfile => "compatibility_mismatch",
+            Self::LocalLockBusy => "local_lock_busy",
             Self::LearningBundleInvalid => "learning_bundle_invalid",
             Self::TooLarge => "credential_too_large",
             Self::Network | Self::Api(_) => "control_plane_error",
+            Self::ApiCode { code, .. } => {
+                let normalized = code.to_ascii_lowercase();
+                match normalized.as_str() {
+                    "login_required" | "common_unauthorized" => "login_required",
+                    "server_profile_required" => "server_profile_required",
+                    "device_conflict" | "ego_browser_device_conflict" => "device_conflict",
+                    "device_generation_conflict"
+                    | "ego_browser_generation_mismatch"
+                    | "ego_browser_generation_invalid"
+                    | "ego_browser_generation_exhausted" => "device_generation_conflict",
+                    "device_not_found" | "ego_browser_device_not_found" => "device_not_found",
+                    "device_revoked"
+                    | "ego_browser_credential_revoked"
+                    | "ego_browser_credential_expired" => "device_revoked",
+                    "admission_disabled"
+                    | "ego_browser_enrollment_disabled"
+                    | "ego_browser_enrollment_admission_disabled"
+                    | "ego_browser_execution_admission_disabled" => "admission_disabled",
+                    "compatibility_mismatch"
+                    | "ego_browser_profile_mismatch"
+                    | "ego_browser_signer_mismatch"
+                    | "ego_browser_version_mismatch"
+                    | "ego_browser_capability_mismatch"
+                    | "ego_browser_runtime_unsupported"
+                    | "ego_browser_encryption_key_mismatch"
+                    | "ego_browser_encryption_key_required"
+                    | "ego_browser_credential_profile_unsupported" => "compatibility_mismatch",
+                    "server_unreachable" => "server_unreachable",
+                    "local_lock_busy" => "local_lock_busy",
+                    _ => "control_plane_error",
+                }
+            }
             Self::Io(_) => "io_error",
+        }
+    }
+
+    /// Reports whether an idempotent ensure request may be retried.
+    pub fn is_retryable_ensure_error(&self) -> bool {
+        match self {
+            Self::Network => true,
+            Self::Api(status) => matches!(*status, 408 | 425 | 429 | 500..=599),
+            Self::ApiCode { status, code } => {
+                let normalized = code.to_ascii_lowercase();
+                if matches!(
+                    normalized.as_str(),
+                    "ego_browser_enrollment_disabled"
+                        | "ego_browser_enrollment_admission_disabled"
+                        | "ego_browser_execution_admission_disabled"
+                        | "admission_disabled"
+                        | "ego_browser_profile_mismatch"
+                        | "ego_browser_signer_mismatch"
+                        | "ego_browser_capability_mismatch"
+                        | "ego_browser_generation_mismatch"
+                        | "ego_browser_device_conflict"
+                        | "ego_browser_idempotency_conflict"
+                ) {
+                    return false;
+                }
+                matches!(*status, 408 | 425 | 429 | 500..=599)
+            }
+            _ => false,
         }
     }
 }
@@ -620,6 +989,20 @@ impl std::fmt::Display for CredentialError {
             }
             Self::RotationConflict => formatter
                 .write_str("ego-browser device identity rotation conflicts with local state"),
+            Self::CompatibilityMismatch => formatter.write_str(
+                "the local ego-browser runtime, policy, release profile, or signer evidence is incompatible",
+            ),
+            Self::PendingExpired => formatter.write_str(
+                "ego-browser pending enrollment expired; confirm re-enroll or forget-this-mac",
+            ),
+            Self::IdentityOriginConflict => formatter.write_str(
+                "ego-browser identity belongs to a different control-plane origin; use switch-server",
+            ),
+            Self::UnsupportedCredentialProfile => formatter
+                .write_str("the requested ego-browser credential storage profile is not supported"),
+            Self::LocalLockBusy => {
+                formatter.write_str("another ego-browser registration operation is in progress")
+            }
             Self::LearningBundleInvalid => {
                 formatter.write_str("ego-browser learning bundle verification failed")
             }
@@ -628,6 +1011,10 @@ impl std::fmt::Display for CredentialError {
             Self::Api(status) => write!(
                 formatter,
                 "ego-browser control-plane returned HTTP {status}"
+            ),
+            Self::ApiCode { status, code } => write!(
+                formatter,
+                "ego-browser control-plane returned HTTP {status} ({code})"
             ),
             Self::Io(error) => write!(formatter, "ego-browser credential I/O error: {error}"),
         }

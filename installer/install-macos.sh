@@ -11,6 +11,7 @@ ego_browser_path=""
 release_repository="${EGO_BROWSER_RELEASE_REPOSITORY:-Agent-Remote/agent-remote-ego-browser}"
 confirmed=0
 start_agents=1
+lifecycle_mode=""
 
 usage() {
   cat <<'EOF'
@@ -18,7 +19,16 @@ Usage: install-macos.sh --archive FILE --archive-sigstore-bundle FILE \
   --manifest FILE --manifest-sigstore-bundle FILE \
   --certificate-sha256 HEX --confirm-local-trust [options]
 
+Lifecycle modes (operate on an existing verified install):
+  --setup                 Verify the current release and restart its agents.
+  --repair                Re-verify the current release and restart its agents.
+  --upgrade               Requires signed release inputs; never upgrades implicitly.
+
 Options:
+  --setup                 Existing-install lifecycle mode.
+  --repair                Existing-install lifecycle mode.
+  --upgrade               Signed archive install lifecycle mode.
+  --yes                   Confirm a lifecycle operation (non-interactive).
   --ego-browser PATH   Canonical local ego-browser runtime path.
   --no-start           Install launch agents without bootstrapping them.
 
@@ -32,6 +42,16 @@ EOF
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --setup|--repair|--upgrade)
+      mode="${1#--}"
+      if [ -n "$lifecycle_mode" ] && [ "$lifecycle_mode" != "$mode" ]; then
+        echo "lifecycle modes are mutually exclusive" >&2
+        exit 2
+      fi
+      lifecycle_mode="$mode"
+      shift
+      ;;
+    --yes) shift ;;
     --archive) archive=${2:?--archive requires a value}; shift 2 ;;
     --manifest) manifest=${2:?--manifest requires a value}; shift 2 ;;
     --manifest-sigstore-bundle) manifest_sigstore_bundle=${2:?--manifest-sigstore-bundle requires a value}; shift 2 ;;
@@ -44,6 +64,119 @@ while [ "$#" -gt 0 ]; do
     *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+run_existing_lifecycle() {
+  local install_root launch_agents current bridge_plist device_plist
+  install_root=${EGO_BROWSER_INSTALL_ROOT:-$HOME/Library/Application Support/Agent Remote Ego Browser}
+  launch_agents=${EGO_BROWSER_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}
+  case "$install_root" in "$HOME"/*) ;; *) echo "install root must stay inside the current home directory" >&2; exit 2 ;; esac
+  case "$launch_agents" in "$HOME"/*) ;; *) echo "launch-agent directory must stay inside the current home directory" >&2; exit 2 ;; esac
+  current="$install_root/current"
+  if [ ! -L "$current" ]; then
+    echo "bridge_installer_unavailable: current Bridge release is missing" >&2
+    exit 1
+  fi
+  python3 - "$install_root" "$current" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve(strict=True)
+current = Path(sys.argv[2])
+resolved = current.resolve(strict=True)
+releases = (root / "releases").resolve(strict=True)
+if resolved.parent != releases or not resolved.is_dir():
+    raise SystemExit("current Bridge release is outside the managed releases directory")
+required = (
+    resolved / "VERSION",
+    resolved / "ARCHIVE_SHA256",
+    resolved / "SIGNING-EVIDENCE.json",
+    resolved / "bin/ego-browser-bridge",
+    resolved / "bin/ego-browser-device",
+    resolved / "installer/install-macos.sh",
+    resolved / "support/verify-community-release.sh",
+)
+for path in required:
+    if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK if path.name.startswith("ego-browser-") or path.name == "install-macos.sh" else os.R_OK):
+        raise SystemExit(f"managed Bridge release is incomplete: {path}")
+PY
+  certificate_pin="$install_root/TRUSTED_CERTIFICATE_SHA256"
+  if [ ! -f "$certificate_pin" ] || [ -L "$certificate_pin" ]; then
+    echo "bridge_installer_unavailable: trusted release certificate pin is missing" >&2
+    exit 1
+  fi
+  expected_certificate_sha256=$(python3 - "$certificate_pin" <<'PY'
+import os
+import stat
+import sys
+
+path = sys.argv[1]
+descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+with os.fdopen(descriptor, "rb") as source:
+    metadata = os.fstat(source.fileno())
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or metadata.st_nlink != 1
+        or stat.S_IMODE(metadata.st_mode) != 0o400
+    ):
+        raise SystemExit("trusted release certificate pin has unsafe ownership or permissions")
+    value = source.read(66)
+if len(value) > 65:
+    raise SystemExit("trusted release certificate pin is oversized")
+sys.stdout.buffer.write(value)
+PY
+  )
+  version=$(tr -d '[:space:]' < "$current/VERSION")
+  "$current/support/verify-community-release.sh" "$current" "$expected_certificate_sha256" "$version"
+  bridge_plist="$launch_agents/dev.agentremote.ego-browser.bridge.plist"
+  device_plist="$launch_agents/dev.agentremote.ego-browser.device.plist"
+  for plist in "$bridge_plist" "$device_plist"; do
+    if [ ! -f "$plist" ] || [ -L "$plist" ]; then
+      echo "bridge_installer_unavailable: launch-agent definition is missing: $plist" >&2
+      exit 1
+    fi
+  done
+  if [ "$lifecycle_mode" = "upgrade" ]; then
+    echo "upgrade requires signed release inputs; refusing an implicit upgrade" >&2
+    exit 2
+  fi
+  domain="gui/$(id -u)"
+  launchctl bootout "$domain" "$bridge_plist" >/dev/null 2>&1 || true
+  launchctl bootout "$domain" "$device_plist" >/dev/null 2>&1 || true
+  launchctl bootstrap "$domain" "$device_plist"
+  launchctl bootstrap "$domain" "$bridge_plist"
+  echo "ego-browser Bridge ${lifecycle_mode} completed; release and Device identity were preserved"
+}
+
+if [ -n "$lifecycle_mode" ] && { [ "$lifecycle_mode" = "setup" ] || [ "$lifecycle_mode" = "repair" ] || [ -z "$archive" ]; }; then
+  if [ "$lifecycle_mode" != "upgrade" ] && { [ -n "$archive" ] || [ -n "$manifest" ] || [ -n "$expected_certificate_sha256" ]; }; then
+    echo "$lifecycle_mode cannot be combined with signed archive inputs" >&2
+    exit 2
+  fi
+  if [ "$lifecycle_mode" = "upgrade" ] && [ -z "$archive" ]; then
+    if [ "$(uname -s)" != "Darwin" ]; then
+      echo "the local Bridge installer supports macOS only" >&2
+      exit 1
+    fi
+    if [ "$(id -u)" -eq 0 ]; then
+      echo "run this user-level installer without sudo" >&2
+      exit 1
+    fi
+    run_existing_lifecycle
+    exit 0
+  fi
+  if [ "$(uname -s)" != "Darwin" ]; then
+    echo "the local Bridge installer supports macOS only" >&2
+    exit 1
+  fi
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "run this user-level installer without sudo" >&2
+    exit 1
+  fi
+  run_existing_lifecycle
+  exit 0
+fi
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "the local Bridge installer supports macOS only" >&2
@@ -152,10 +285,12 @@ if len(matches) != 1 or matches[0]["kind"] != "macos_local_components":
 print(manifest["version"])
 print(matches[0]["sha256"])
 print(manifest["signer_certificate_sha256"])
+print(manifest["local_ego_browser_runtime_version"])
 PY
 version=$(sed -n '1p' "$metadata")
 expected_archive_sha256=$(sed -n '2p' "$metadata")
 manifest_certificate_sha256=$(sed -n '3p' "$metadata")
+expected_runtime_version=$(sed -n '4p' "$metadata")
 if [ "$manifest_certificate_sha256" != "$expected_certificate_sha256" ]; then
   echo "release certificate pin changed during verification" >&2
   exit 1
@@ -284,16 +419,18 @@ if not isinstance(version, str) or re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+_-]{0,6
 print(version)
 '
 )
-if [ "$runtime_version" != "0.4.7.4" ]; then
-  echo "local ego-browser runtime version $runtime_version is incompatible; expected 0.4.7.4" >&2
+if [ "$runtime_version" != "$expected_runtime_version" ]; then
+  echo "local ego-browser runtime version $runtime_version is incompatible; expected $expected_runtime_version" >&2
   exit 1
 fi
 
 install_root=${EGO_BROWSER_INSTALL_ROOT:-$HOME/Library/Application Support/Agent Remote Ego Browser}
 launch_agents=${EGO_BROWSER_LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}
+credential_dir=${EGO_BROWSER_DEVICE_HOME:-$HOME/.config/agent-remote-ego-browser}
 case "$install_root" in "$HOME"/*) ;; *) echo "install root must stay inside the current home directory" >&2; exit 2 ;; esac
 case "$launch_agents" in "$HOME"/*) ;; *) echo "launch-agent directory must stay inside the current home directory" >&2; exit 2 ;; esac
-python3 - "$HOME" "$install_root" "$launch_agents" <<'PY'
+case "$credential_dir" in "$HOME"/*) ;; *) echo "credential directory must stay inside the current home directory" >&2; exit 2 ;; esac
+python3 - "$HOME" "$install_root" "$launch_agents" "$credential_dir" <<'PY'
 import os
 import sys
 from pathlib import Path
@@ -376,7 +513,6 @@ next_link="$install_root/.current-$$"
 ln -s "$release" "$next_link"
 mv -fh "$next_link" "$current"
 
-credential_dir="$HOME/.config/agent-remote-ego-browser"
 mkdir -p "$credential_dir"
 chmod 0700 "$credential_dir"
 bridge_plist="$launch_agents/dev.agentremote.ego-browser.bridge.plist"

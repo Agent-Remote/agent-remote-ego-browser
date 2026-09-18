@@ -39,6 +39,7 @@ const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const RELAY_RECONNECT_MIN_DELAY: Duration = Duration::from_millis(250);
 const RELAY_RECONNECT_MAX_DELAY: Duration = Duration::from_secs(30);
 const DEVICE_PEER_HEARTBEAT: &[u8] = b"EGB1\n";
+const DEVICE_PEER_ADMISSION_CLOSED: &[u8] = b"EGB0\n";
 const DEVICE_PEER_HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(5);
 const DEVICE_PEER_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 const TASK_SPACE_MONITOR_POLL_INTERVAL_MS: u64 = 250;
@@ -124,9 +125,16 @@ struct DeviceServiceSocketIdentity {
     inode: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DevicePeerHeartbeat {
+    Alive,
+    AdmissionClosed,
+}
+
 #[derive(Debug)]
 enum DevicePeerObserverOutcome {
     Stopped,
+    AdmissionClosed,
     Lost(BridgeError),
 }
 

@@ -1,5 +1,8 @@
 # 发布、升级与回滚
 
+当前源码树面向尚未发布的 `0.1.12` candidate。只有 tag-bound release、Sigstore evidence、
+root composition 和 artifact-bound canary 全部通过后，才能声明 production-ready。
+
 ## 证据 profile
 
 release `0.1.11` 的目标为 `community-local-trust`：
@@ -32,7 +35,7 @@ scripts/prepare-release.sh NEXT_VERSION
 scripts/run-quality-checks.sh
 ```
 
-prepare 脚本要求目标 semantic version 严格递增。它会更新 workspace version、
+prepare 脚本拒绝旧版本，也允许已预置版本但尚未打 tag 的 candidate。它会更新 workspace version、
 `Cargo.lock` 中所有本仓库 package entry、`VERSION`、协议 capability vector，以及本仓库
 负责的全部中英文兼容矩阵和安装示例。脚本会在写入前拒绝过期 source value 与已有 changelog
 heading，添加带日期的 changelog entry；已有待发布说明会直接并入该版本，没有说明时从仓库
