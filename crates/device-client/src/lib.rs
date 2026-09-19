@@ -563,12 +563,52 @@ impl PolicyUpdateTransaction<'_> {
         self.store.prepare_learning_bundle_update_unlocked(root)
     }
 
+    /// Prepare a verified migration from an older managed release bundle.
+    pub fn prepare_managed_learning_bundle_update(
+        &self,
+        current_release: &Path,
+        expected_skill_version: &str,
+        expected_runtime_version: &str,
+    ) -> Result<(VerifiedLocalPolicy, Option<PreparedPolicyUpdate>), CredentialError> {
+        self.prepare_managed_learning_bundle_update_with_key(
+            current_release,
+            expected_skill_version,
+            expected_runtime_version,
+            &TRUSTED_LEARNING_BUNDLE_PUBLIC_KEY,
+        )
+    }
+
+    fn prepare_managed_learning_bundle_update_with_key(
+        &self,
+        current_release: &Path,
+        expected_skill_version: &str,
+        expected_runtime_version: &str,
+        learning_key: &[u8; 32],
+    ) -> Result<(VerifiedLocalPolicy, Option<PreparedPolicyUpdate>), CredentialError> {
+        self.store.prepare_managed_learning_bundle_update_unlocked(
+            current_release,
+            expected_skill_version,
+            expected_runtime_version,
+            learning_key,
+        )
+    }
+
     /// Commit the exact policy document prepared by this transaction.
     pub fn commit_policy_update(
         &self,
         update: &PreparedPolicyUpdate,
     ) -> Result<(), CredentialError> {
         self.store.commit_policy_update_unlocked(update)
+    }
+
+    #[cfg(test)]
+    fn commit_policy_update_with_key(
+        &self,
+        update: &PreparedPolicyUpdate,
+        learning_key: &[u8; 32],
+    ) -> Result<(), CredentialError> {
+        self.store
+            .commit_policy_update_unlocked_with_key(update, learning_key)
     }
 }
 

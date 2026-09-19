@@ -1,4 +1,6 @@
 use super::*;
+use base64::engine::general_purpose::STANDARD;
+use ego_browser_bridge_protocol::{LearningBundleManifest, LearningFile, PROTOCOL_VERSION};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -455,6 +457,110 @@ fn test_store() -> (tempfile::TempDir, CredentialStore) {
     let directory = temporary.path().canonicalize().expect("canonical path");
     let store = CredentialStore::new(directory).expect("credential store");
     (temporary, store)
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct ReadOnlyTrees(Vec<PathBuf>);
+
+#[cfg(unix)]
+impl Drop for ReadOnlyTrees {
+    fn drop(&mut self) {
+        for root in &self.0 {
+            make_tree_writable(root);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn make_tree_writable(path: &Path) {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if metadata.is_dir() {
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o700));
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                make_tree_writable(&entry.path());
+            }
+        }
+    } else {
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+}
+
+#[cfg(unix)]
+fn create_test_learning_bundle(
+    root: &Path,
+    signing_key: &SigningKey,
+    skill_version: &str,
+    runtime_version: &str,
+) {
+    let learnings = root.join("learnings/example");
+    fs::create_dir_all(&learnings).expect("learning directories");
+    let data = b"verified managed learning\n";
+    let data_path = learnings.join("note.md");
+    fs::write(&data_path, data).expect("learning data");
+    let mut manifest = LearningBundleManifest {
+        bundle_version: "test-bundle".into(),
+        skill_version: skill_version.into(),
+        local_ego_browser_runtime_version: runtime_version.into(),
+        protocol_versions: vec![PROTOCOL_VERSION.into()],
+        files: vec![LearningFile {
+            path: "learnings/example/note.md".into(),
+            size_bytes: data.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(data)),
+        }],
+        signing_key_id: "managed-migration-test".into(),
+        signature: String::new(),
+    };
+    manifest.signature = STANDARD.encode(
+        signing_key
+            .sign(&manifest.signed_bytes().expect("signed bytes"))
+            .to_bytes(),
+    );
+    let manifest_path = root.join("manifest.json");
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec(&manifest).expect("manifest JSON"),
+    )
+    .expect("learning manifest");
+    fs::set_permissions(&data_path, fs::Permissions::from_mode(0o400))
+        .expect("learning data permissions");
+    fs::set_permissions(&manifest_path, fs::Permissions::from_mode(0o400))
+        .expect("manifest permissions");
+    fs::set_permissions(&learnings, fs::Permissions::from_mode(0o500))
+        .expect("learning directory permissions");
+    fs::set_permissions(
+        learnings.parent().expect("learnings parent"),
+        fs::Permissions::from_mode(0o500),
+    )
+    .expect("learnings permissions");
+    fs::set_permissions(root, fs::Permissions::from_mode(0o500)).expect("bundle permissions");
+}
+
+#[cfg(unix)]
+fn write_learning_policy(store: &CredentialStore, root: &Path) -> LocalPolicy {
+    let mut policy = store.load_policy_document().expect("policy document");
+    policy.policy_revision = policy
+        .policy_revision
+        .checked_add(1)
+        .expect("policy revision");
+    policy.learning_bundle_root = Some(
+        root.canonicalize()
+            .expect("canonical bundle")
+            .to_str()
+            .expect("UTF-8 bundle path")
+            .to_owned(),
+    );
+    fs::write(
+        &store.policy_path,
+        serde_json::to_vec(&policy).expect("policy JSON"),
+    )
+    .expect("policy write");
+    fs::set_permissions(&store.policy_path, fs::Permissions::from_mode(0o600))
+        .expect("policy permissions");
+    policy
 }
 
 #[cfg(unix)]
@@ -1137,6 +1243,261 @@ fn policy_update_uses_exact_compare_and_swap() {
         store.commit_policy_update(&stale),
         Err(CredentialError::PolicyConflict)
     ));
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_learning_bundle_migration_is_atomic_and_preserves_local_state() {
+    let installation = tempfile::tempdir().expect("installation root");
+    let mut read_only_trees = ReadOnlyTrees::default();
+    let releases = installation
+        .path()
+        .canonicalize()
+        .expect("canonical installation root")
+        .join("releases");
+    let previous_bundle = releases.join("0.1.11/learning-bundle");
+    let current_release = releases.join(env!("CARGO_PKG_VERSION"));
+    let current_bundle = current_release.join("learning-bundle");
+    let retired_key = SigningKey::generate(&mut OsRng);
+    let current_key = SigningKey::generate(&mut OsRng);
+    create_test_learning_bundle(&previous_bundle, &retired_key, "1.2.3", "0.4.7.4");
+    create_test_learning_bundle(&current_bundle, &current_key, "2.0.0", "0.5.0.32");
+    read_only_trees.0.push(previous_bundle.clone());
+    read_only_trees.0.push(current_bundle.clone());
+
+    let (_store_directory, store) = test_store();
+    let allowlist_root = tempfile::tempdir().expect("allowlist root");
+    let allowlist_update = store
+        .prepare_allowlist_update(vec![allowlist_root
+            .path()
+            .canonicalize()
+            .expect("allowlist path")])
+        .expect("allowlist update");
+    store
+        .commit_policy_update(&allowlist_update)
+        .expect("allowlist commit");
+    let previous_policy = write_learning_policy(&store, &previous_bundle);
+    let identity = DeviceIdentity::generate("community-local-trust", "community_file");
+    store.save_identity(&identity).expect("identity");
+    let pending = PendingRegistration {
+        version: 1,
+        device_id: identity.device_id.clone(),
+        device_generation: identity.generation,
+        server_url: "https://control.example.test".into(),
+        release_profile: identity.release_profile.clone(),
+        credential_profile: identity.credential_profile.clone(),
+        enrollment_mode: "initial".into(),
+        signing_public_key_sha256: public_value_sha256(&identity.public_key_b64()),
+        encryption_public_key_sha256: public_value_sha256(&identity.encryption_public_key_b64()),
+        idempotency_key: "managed-migration-idempotency-key".into(),
+        created_at_unix: unix_now(),
+        last_error_code: None,
+    };
+    store
+        .save_pending_registration(&pending)
+        .expect("pending registration");
+    let key_bytes = fs::read(&store.key_path).expect("identity key bytes");
+
+    let transaction = store.begin_policy_update().expect("policy transaction");
+    let (verified, update) = transaction
+        .prepare_managed_learning_bundle_update_with_key(
+            &current_release,
+            "2.0.0",
+            "0.5.0.32",
+            &current_key.verifying_key().to_bytes(),
+        )
+        .expect("managed migration");
+    let update = update.expect("migration update");
+    assert_eq!(
+        verified
+            .learning_bundle
+            .as_ref()
+            .expect("verified current bundle")
+            .root,
+        current_bundle.canonicalize().expect("current bundle path")
+    );
+    assert_eq!(
+        verified.allowlist_revision,
+        previous_policy.allowlist_revision
+    );
+    assert_eq!(
+        store.load_policy_document().expect("uncommitted policy"),
+        previous_policy
+    );
+    assert_eq!(
+        store
+            .load_pending_registration()
+            .expect("retained pending registration"),
+        pending
+    );
+    assert_eq!(fs::read(&store.key_path).expect("retained key"), key_bytes);
+
+    transaction
+        .commit_policy_update_with_key(&update, &current_key.verifying_key().to_bytes())
+        .expect("migration commit");
+    drop(transaction);
+    let migrated = store.load_policy_document().expect("migrated policy");
+    assert_eq!(
+        migrated.policy_revision,
+        previous_policy.policy_revision + 1
+    );
+    assert_eq!(
+        migrated.allowlist_revision,
+        previous_policy.allowlist_revision
+    );
+    assert_eq!(migrated.allowlist_roots, previous_policy.allowlist_roots);
+    assert_eq!(
+        migrated.allowlist_roots_digest,
+        previous_policy.allowlist_roots_digest
+    );
+    assert_eq!(
+        migrated.learning_bundle_root.as_deref(),
+        current_bundle
+            .canonicalize()
+            .expect("canonical current bundle")
+            .to_str()
+    );
+    assert_eq!(
+        store
+            .load_pending_registration()
+            .expect("pending after policy commit"),
+        pending
+    );
+    let retained_identity = store
+        .load_identity(
+            identity.device_id.clone(),
+            identity.release_profile.clone(),
+            identity.credential_profile.clone(),
+        )
+        .expect("retained identity");
+    assert_eq!(retained_identity.device_id, identity.device_id);
+    assert_eq!(retained_identity.generation, identity.generation);
+    assert_eq!(
+        fs::read(&store.key_path).expect("key after commit"),
+        key_bytes
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_learning_bundle_migration_rejects_custom_policy_paths() {
+    let installation = tempfile::tempdir().expect("installation root");
+    let mut read_only_trees = ReadOnlyTrees::default();
+    let installation_root = installation
+        .path()
+        .canonicalize()
+        .expect("canonical installation root");
+    let current_release = installation_root
+        .join("releases")
+        .join(env!("CARGO_PKG_VERSION"));
+    let current_bundle = current_release.join("learning-bundle");
+    let custom_bundle = installation_root.join("custom/learning-bundle");
+    let key = SigningKey::generate(&mut OsRng);
+    create_test_learning_bundle(&current_bundle, &key, "2.0.0", "0.5.0.32");
+    create_test_learning_bundle(&custom_bundle, &key, "1.2.3", "0.4.7.4");
+    read_only_trees.0.push(current_bundle);
+    read_only_trees.0.push(custom_bundle.clone());
+    let (_store_directory, store) = test_store();
+    let previous = write_learning_policy(&store, &custom_bundle);
+
+    let transaction = store.begin_policy_update().expect("policy transaction");
+    assert!(matches!(
+        transaction.prepare_managed_learning_bundle_update_with_key(
+            &current_release,
+            "2.0.0",
+            "0.5.0.32",
+            &key.verifying_key().to_bytes(),
+        ),
+        Err(CredentialError::LearningBundleInvalid)
+    ));
+    drop(transaction);
+    assert_eq!(store.load_policy_document().expect("policy"), previous);
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_learning_bundle_migration_requires_the_current_signed_bundle() {
+    let installation = tempfile::tempdir().expect("installation root");
+    let mut read_only_trees = ReadOnlyTrees::default();
+    let releases = installation
+        .path()
+        .canonicalize()
+        .expect("canonical installation root")
+        .join("releases");
+    let previous_bundle = releases.join("0.1.11/learning-bundle");
+    let current_release = releases.join(env!("CARGO_PKG_VERSION"));
+    let current_bundle = current_release.join("learning-bundle");
+    let expected_key = SigningKey::generate(&mut OsRng);
+    let wrong_key = SigningKey::generate(&mut OsRng);
+    create_test_learning_bundle(&previous_bundle, &wrong_key, "1.2.3", "0.4.7.4");
+    fs::create_dir_all(&current_release).expect("current release directory");
+    read_only_trees.0.push(previous_bundle.clone());
+    let (_store_directory, store) = test_store();
+    let previous = write_learning_policy(&store, &previous_bundle);
+
+    let transaction = store
+        .begin_policy_update()
+        .expect("missing bundle transaction");
+    assert!(matches!(
+        transaction.prepare_managed_learning_bundle_update_with_key(
+            &current_release,
+            "2.0.0",
+            "0.5.0.32",
+            &expected_key.verifying_key().to_bytes(),
+        ),
+        Err(CredentialError::LearningBundleInvalid)
+    ));
+    drop(transaction);
+
+    create_test_learning_bundle(&current_bundle, &wrong_key, "2.0.0", "0.5.0.32");
+    read_only_trees.0.push(current_bundle);
+    let transaction = store
+        .begin_policy_update()
+        .expect("untrusted bundle transaction");
+    assert!(matches!(
+        transaction.prepare_managed_learning_bundle_update_with_key(
+            &current_release,
+            "2.0.0",
+            "0.5.0.32",
+            &expected_key.verifying_key().to_bytes(),
+        ),
+        Err(CredentialError::LearningBundleInvalid)
+    ));
+    drop(transaction);
+    assert_eq!(store.load_policy_document().expect("policy"), previous);
+}
+
+#[cfg(unix)]
+#[test]
+fn compatible_managed_learning_bundle_does_not_advance_policy_revision() {
+    let installation = tempfile::tempdir().expect("installation root");
+    let mut read_only_trees = ReadOnlyTrees::default();
+    let current_release = installation
+        .path()
+        .canonicalize()
+        .expect("canonical installation root")
+        .join("releases")
+        .join(env!("CARGO_PKG_VERSION"));
+    let current_bundle = current_release.join("learning-bundle");
+    let key = SigningKey::generate(&mut OsRng);
+    create_test_learning_bundle(&current_bundle, &key, "2.0.0", "0.5.0.32");
+    read_only_trees.0.push(current_bundle.clone());
+    let (_store_directory, store) = test_store();
+    let previous = write_learning_policy(&store, &current_bundle);
+
+    let transaction = store.begin_policy_update().expect("policy transaction");
+    let (verified, update) = transaction
+        .prepare_managed_learning_bundle_update_with_key(
+            &current_release,
+            "2.0.0",
+            "0.5.0.32",
+            &key.verifying_key().to_bytes(),
+        )
+        .expect("compatible policy");
+    assert!(update.is_none());
+    assert_eq!(verified.policy_revision, previous.policy_revision);
+    drop(transaction);
+    assert_eq!(store.load_policy_document().expect("policy"), previous);
 }
 
 #[cfg(unix)]

@@ -204,38 +204,26 @@ pub(super) async fn ensure(
     // Retain non-secret origin metadata when short-lived credentials are retired.
     store.save_identity_metadata(&identity, &server)?;
 
-    // A credential fast path must not hide damaged identity state.
-    if let (Some(pending), Some(credential)) = (pending.as_ref(), existing_credential.as_ref()) {
-        if credential_matches_identity(credential, &identity, &server)
+    let fresh_credential = existing_credential.as_ref().filter(|credential| {
+        credential_matches_identity(credential, &identity, &server)
             && credential_is_fresh(credential, now())
+    });
+    let mut prepared_inputs = None;
+    if let Some(credential) = fresh_credential {
+        let inputs = local_registration_inputs(store, &args, &identity)?;
+        if inputs.policy_update.is_none()
+            && (pending.is_some() || !has_option(&args, "--force-refresh"))
         {
-            let _ = local_registration_inputs(store, &args, &identity)?;
-            // A matching credential proves a post-commit crash; do not issue another.
-            store.clear_pending_registration()?;
+            if pending.is_some() {
+                store.clear_pending_registration()?;
+            }
             println!(
                 "ego-browser device {} is already enrolled",
                 credential.device_id
             );
             return Ok(());
         }
-        let _ = pending;
-    }
-    if pending.is_none()
-        && existing_credential.as_ref().is_some_and(|credential| {
-            credential_matches_identity(credential, &identity, &server)
-                && credential_is_fresh(credential, now())
-        })
-        && !has_option(&args, "--force-refresh")
-    {
-        let _ = local_registration_inputs(store, &args, &identity)?;
-        println!(
-            "ego-browser device {} is already enrolled",
-            existing_credential
-                .as_ref()
-                .map(|credential| credential.device_id.as_str())
-                .unwrap_or("unknown")
-        );
-        return Ok(());
+        prepared_inputs = Some(inputs);
     }
 
     let idempotency_key = if let Some(pending) = pending.as_ref() {
@@ -264,14 +252,16 @@ pub(super) async fn ensure(
     };
 
     // Persist recovery state before any fallible probe can strand the key.
-    let (runtime, policy, signer_certificate_sha256) =
-        local_registration_inputs(store, &args, &identity)?;
+    let inputs = match prepared_inputs {
+        Some(inputs) => inputs,
+        None => local_registration_inputs(store, &args, &identity)?,
+    };
 
     let payload = registration_payload(
         &identity,
-        &runtime,
-        &policy,
-        &signer_certificate_sha256,
+        &inputs.runtime,
+        &inputs.policy,
+        &inputs.signer_certificate_sha256,
         &enrollment_mode,
     );
 
@@ -284,18 +274,45 @@ pub(super) async fn ensure(
             return Err(error.into());
         }
     };
+    let policy_commit_recovery = pending.is_some() && inputs.policy_update.is_some();
+    let previous_revision = if policy_commit_recovery {
+        None
+    } else {
+        existing_credential.as_ref().map(|value| value.revision)
+    };
     let credential = credential_from_registration_response_strict(
         &body,
         &server,
         &identity,
-        &signer_certificate_sha256,
+        &inputs.signer_certificate_sha256,
         &payload,
-        existing_credential.as_ref().map(|value| value.revision),
+        previous_revision,
     )?;
+    if policy_commit_recovery {
+        validate_replayed_registration_credential(existing_credential.as_ref(), &credential)?;
+    }
     store.save(&credential)?;
+    if let Some((transaction, update)) = &inputs.policy_update {
+        transaction.commit_policy_update(update)?;
+    }
     store.save_identity_metadata(&identity, &server)?;
     store.clear_pending_registration()?;
     println!("registered ego-browser device {}", credential.device_id);
+    Ok(())
+}
+
+pub(super) fn validate_replayed_registration_credential(
+    previous: Option<&CommunityCredential>,
+    candidate: &CommunityCredential,
+) -> Result<(), CredentialError> {
+    let Some(previous) = previous else {
+        return Ok(());
+    };
+    if candidate.revision < previous.revision
+        || (candidate.revision == previous.revision && candidate != previous)
+    {
+        return Err(CredentialError::CompatibilityMismatch);
+    }
     Ok(())
 }
 
@@ -947,22 +964,51 @@ pub(super) async fn synchronize_registered_policy(
     Ok(Some(credential))
 }
 
-fn local_registration_inputs(
-    store: &CredentialStore,
+struct LocalRegistrationInputs<'a> {
+    runtime: RuntimeProbe,
+    policy: VerifiedLocalPolicy,
+    signer_certificate_sha256: String,
+    policy_update: Option<(PolicyUpdateTransaction<'a>, PreparedPolicyUpdate)>,
+}
+
+fn local_registration_inputs<'a>(
+    store: &'a CredentialStore,
     args: &[String],
     identity: &DeviceIdentity,
-) -> Result<(RuntimeProbe, VerifiedLocalPolicy, String), Box<dyn std::error::Error>> {
+) -> Result<LocalRegistrationInputs<'a>, Box<dyn std::error::Error>> {
     let runtime = probe_runtime().map_err(|_| CredentialError::CompatibilityMismatch)?;
-    let (_, policy) = store
-        .load_policy(
-            Some(SUPPORTED_SKILL_VERSION),
-            Some(&runtime.ego_browser_version),
-        )
-        .map_err(map_local_policy_error)?;
+    let (policy, policy_update) = match store.load_policy(
+        Some(SUPPORTED_SKILL_VERSION),
+        Some(&runtime.ego_browser_version),
+    ) {
+        Ok((_, policy)) => (policy, None),
+        Err(CredentialError::LearningBundleInvalid) => {
+            let current_release = env::current_exe()
+                .ok()
+                .and_then(|path| installed_release_directory(&path))
+                .ok_or(CredentialError::CompatibilityMismatch)?;
+            let transaction = store.begin_policy_update()?;
+            let (policy, update) = transaction
+                .prepare_managed_learning_bundle_update(
+                    &current_release,
+                    SUPPORTED_SKILL_VERSION,
+                    &runtime.ego_browser_version,
+                )
+                .map_err(map_local_policy_error)?;
+            let update = update.map(|update| (transaction, update));
+            (policy, update)
+        }
+        Err(error) => return Err(map_local_policy_error(error).into()),
+    };
     let signer_certificate_sha256 =
         signer_certificate_sha256_for_profile(args, Some(&identity.release_profile))
             .map_err(|_| CredentialError::CompatibilityMismatch)?;
-    Ok((runtime, policy, signer_certificate_sha256))
+    Ok(LocalRegistrationInputs {
+        runtime,
+        policy,
+        signer_certificate_sha256,
+        policy_update,
+    })
 }
 
 pub(super) fn map_local_policy_error(error: CredentialError) -> CredentialError {

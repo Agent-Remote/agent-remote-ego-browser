@@ -269,6 +269,49 @@ fn pending_ensure_reuses_only_a_credential_outside_refresh_skew() {
 }
 
 #[test]
+fn pending_policy_commit_accepts_only_an_exact_idempotent_credential_replay() {
+    let previous = CommunityCredential {
+        version: 1,
+        device_id: "device-replay".to_owned(),
+        server_url: "https://control.example".to_owned(),
+        token: "egbc_replay-token".to_owned(),
+        credential_id: Some("credential-replay".to_owned()),
+        release_profile: "community-local-trust".to_owned(),
+        credential_profile: "community_file".to_owned(),
+        expires_at_unix: 4_000_000_000,
+        revision: 7,
+    };
+    assert!(
+        crate::registration::validate_replayed_registration_credential(Some(&previous), &previous)
+            .is_ok()
+    );
+
+    let mut advanced = previous.clone();
+    advanced.revision += 1;
+    assert!(
+        crate::registration::validate_replayed_registration_credential(Some(&previous), &advanced)
+            .is_ok()
+    );
+
+    let mut changed = previous.clone();
+    changed.token = "egbc_changed-token".to_owned();
+    assert!(
+        crate::registration::validate_replayed_registration_credential(Some(&previous), &changed)
+            .is_err()
+    );
+
+    let mut rolled_back = previous.clone();
+    rolled_back.revision -= 1;
+    assert!(
+        crate::registration::validate_replayed_registration_credential(
+            Some(&previous),
+            &rolled_back
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn token_stdin_normalization_strips_only_line_endings() {
     assert_eq!(
         crate::registration::normalize_stdin_token("art_test\r\n").expect("token"),
@@ -515,9 +558,10 @@ fn runtime_probe_discovers_the_standard_user_install_without_path() {
 #[test]
 fn installed_certificate_pin_path_follows_canonical_release_layout() {
     let temporary = tempfile::tempdir().expect("temporary directory");
-    let executable = temporary
-        .path()
-        .join("releases/0.1.11/bin/ego-browser-device");
+    let executable = temporary.path().join(format!(
+        "releases/{}/bin/ego-browser-device",
+        env!("CARGO_PKG_VERSION")
+    ));
     fs::create_dir_all(executable.parent().expect("binary parent")).expect("release layout");
     fs::write(&executable, b"binary").expect("binary");
     let expected = temporary
@@ -526,6 +570,19 @@ fn installed_certificate_pin_path_follows_canonical_release_layout() {
         .expect("canonical temporary directory")
         .join("TRUSTED_CERTIFICATE_SHA256");
     assert_eq!(installed_certificate_pin_path(&executable), Some(expected));
+    assert_eq!(
+        installed_release_directory(&executable),
+        executable
+            .parent()
+            .and_then(Path::parent)
+            .and_then(|path| path.canonicalize().ok())
+    );
+    let stale = temporary
+        .path()
+        .join("releases/0.1.11/bin/ego-browser-device");
+    fs::create_dir_all(stale.parent().expect("stale parent")).expect("stale layout");
+    fs::write(&stale, b"binary").expect("stale binary");
+    assert_eq!(installed_release_directory(&stale), None);
     let unrelated = temporary.path().join("bin/ego-browser-device");
     fs::create_dir_all(unrelated.parent().expect("unrelated parent")).expect("unrelated layout");
     fs::write(&unrelated, b"binary").expect("unrelated binary");

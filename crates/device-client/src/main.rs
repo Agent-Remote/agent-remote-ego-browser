@@ -22,8 +22,8 @@ use ego_browser_bridge_protocol::{
 };
 use ego_browser_device::{
     canonical_server_url, migrate_legacy_device_store, ActiveBinding, CommunityCredential,
-    CredentialError, CredentialStore, DeviceApiClient, DeviceIdentity, VerifiedLocalPolicy,
-    FULL_TRUST_WARNING, TOKEN_MAX_BYTES,
+    CredentialError, CredentialStore, DeviceApiClient, DeviceIdentity, PolicyUpdateTransaction,
+    PreparedPolicyUpdate, VerifiedLocalPolicy, FULL_TRUST_WARNING, TOKEN_MAX_BYTES,
 };
 #[cfg(target_os = "macos")]
 use sha2::{Digest, Sha256};
@@ -260,6 +260,16 @@ fn signer_certificate_sha256_for_profile(
 }
 
 fn installed_certificate_pin_path(executable: &Path) -> Option<PathBuf> {
+    let release = installed_release_directory(executable)?;
+    Some(
+        release
+            .parent()?
+            .parent()?
+            .join("TRUSTED_CERTIFICATE_SHA256"),
+    )
+}
+
+fn installed_release_directory(executable: &Path) -> Option<PathBuf> {
     let executable = executable.canonicalize().ok()?;
     let bin = executable.parent()?;
     if bin.file_name().and_then(OsStr::to_str) != Some("bin") {
@@ -270,7 +280,10 @@ fn installed_certificate_pin_path(executable: &Path) -> Option<PathBuf> {
     if releases.file_name().and_then(OsStr::to_str) != Some("releases") {
         return None;
     }
-    Some(releases.parent()?.join("TRUSTED_CERTIFICATE_SHA256"))
+    if release.file_name().and_then(OsStr::to_str) != Some(env!("CARGO_PKG_VERSION")) {
+        return None;
+    }
+    Some(release.to_owned())
 }
 
 /// Reads the installer pin only from a regular owner-only file.

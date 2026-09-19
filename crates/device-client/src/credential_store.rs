@@ -224,6 +224,77 @@ impl CredentialStore {
         Ok(PreparedPolicyUpdate { previous, next })
     }
 
+    pub(super) fn prepare_managed_learning_bundle_update_unlocked(
+        &self,
+        current_release: &Path,
+        expected_skill_version: &str,
+        expected_runtime_version: &str,
+        learning_key: &[u8; 32],
+    ) -> Result<(VerifiedLocalPolicy, Option<PreparedPolicyUpdate>), CredentialError> {
+        let previous = self.load_policy_document()?;
+        match previous.verify_with_key(
+            Some(expected_skill_version),
+            Some(expected_runtime_version),
+            learning_key,
+        ) {
+            Ok(verified) => return Ok((verified, None)),
+            Err(CredentialError::LearningBundleInvalid) => {}
+            Err(error) => return Err(error),
+        }
+
+        let mut policy_without_learning = previous.clone();
+        policy_without_learning.learning_bundle_root = None;
+        policy_without_learning.verify_with_key(None, None, learning_key)?;
+
+        let canonical_current_release = current_release
+            .canonicalize()
+            .map_err(|_| CredentialError::LearningBundleInvalid)?;
+        if canonical_current_release != current_release
+            || canonical_current_release
+                .file_name()
+                .and_then(|value| value.to_str())
+                != Some(env!("CARGO_PKG_VERSION"))
+        {
+            return Err(CredentialError::LearningBundleInvalid);
+        }
+        let current_release = canonical_current_release;
+        let releases = current_release
+            .parent()
+            .filter(|path| path.file_name().and_then(|value| value.to_str()) == Some("releases"))
+            .ok_or(CredentialError::LearningBundleInvalid)?;
+        let previous_root = PathBuf::from(
+            previous
+                .learning_bundle_root
+                .as_deref()
+                .ok_or(CredentialError::LearningBundleInvalid)?,
+        );
+        let previous_release = previous_root
+            .parent()
+            .filter(|_| {
+                previous_root.file_name().and_then(|value| value.to_str())
+                    == Some("learning-bundle")
+            })
+            .ok_or(CredentialError::LearningBundleInvalid)?;
+        if previous_release.parent() != Some(releases)
+            || previous_release == current_release.as_path()
+            || !is_stable_release_version(previous_release.file_name())
+            || previous_root
+                .canonicalize()
+                .map_err(|_| CredentialError::LearningBundleInvalid)?
+                != previous_root
+        {
+            return Err(CredentialError::LearningBundleInvalid);
+        }
+
+        let next = previous.with_learning_bundle_root(current_release.join("learning-bundle"))?;
+        let verified = next.verify_with_key(
+            Some(expected_skill_version),
+            Some(expected_runtime_version),
+            learning_key,
+        )?;
+        Ok((verified, Some(PreparedPolicyUpdate { previous, next })))
+    }
+
     /// Commit a prepared policy only if its exact predecessor remains current.
     pub fn commit_policy_update(
         &self,
@@ -237,6 +308,14 @@ impl CredentialStore {
         &self,
         update: &PreparedPolicyUpdate,
     ) -> Result<(), CredentialError> {
+        self.commit_policy_update_unlocked_with_key(update, &TRUSTED_LEARNING_BUNDLE_PUBLIC_KEY)
+    }
+
+    pub(super) fn commit_policy_update_unlocked_with_key(
+        &self,
+        update: &PreparedPolicyUpdate,
+        learning_key: &[u8; 32],
+    ) -> Result<(), CredentialError> {
         let current = self.load_policy_document()?;
         if current != update.previous
             || update.next.policy_revision
@@ -247,7 +326,7 @@ impl CredentialStore {
         {
             return Err(CredentialError::PolicyConflict);
         }
-        update.next.verify(None, None)?;
+        update.next.verify_with_key(None, None, learning_key)?;
         let bytes = serde_json::to_vec(&update.next).map_err(|_| CredentialError::PolicyInvalid)?;
         atomic_owner_write(&self.directory, &self.policy_path, &bytes, "policy")
     }
@@ -963,6 +1042,19 @@ impl CredentialStore {
         }
         Ok(())
     }
+}
+
+fn is_stable_release_version(value: Option<&std::ffi::OsStr>) -> bool {
+    let Some(value) = value.and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let parts = value.split('.').collect::<Vec<_>>();
+    parts.len() == 3
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+                && (part.len() == 1 || !part.starts_with('0'))
+        })
 }
 
 fn pending_rotation_matches(
