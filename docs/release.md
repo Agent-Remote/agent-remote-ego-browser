@@ -1,12 +1,12 @@
 # Release, Upgrade, and Rollback
 
-The source tree targets `0.1.14`. Its tag-bound release and Sigstore evidence
+The source tree targets `0.1.15`. Its tag-bound release and Sigstore evidence
 establish component readiness; root composition and artifact-bound canaries
 are separate deployment gates.
 
 ## Evidence profile
 
-Release `0.1.14` targets `community-local-trust`:
+Release `0.1.15` targets `community-local-trust`:
 
 | Claim | Required value |
 | --- | --- |
@@ -70,7 +70,7 @@ sizes, digests, versions, platforms, release claims, and signing certificate.
 8. Reconfirm full trust, create a fresh generation, and run `--doctor` plus a
    single-user canary. Old permits and requests are never replayed.
 
-Compatibility is exact: wrapper/Bridge/Device Client `0.1.14`, protocol
+Compatibility is exact: wrapper/Bridge/Device Client `0.1.15`, protocol
 `ego-browser-bridge-v1`, Skill `2.0.0`, and local runtime `0.5.0.32`. Unknown or
 partial capabilities fail closed. There is no browser or transport fallback.
 

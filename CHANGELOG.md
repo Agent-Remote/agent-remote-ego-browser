@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## 0.1.15 - 2026-09-19
+
+- fix(lifecycle): recover expired enrollment and decode broker errors (f9a519a)
+
 ## 0.1.14 - 2026-09-19
 
 - fix(device): migrate managed learning policy on upgrade (0cbd157)
