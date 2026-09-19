@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## 0.1.14 - 2026-09-19
+
+- fix(device): migrate managed learning policy on upgrade (0cbd157)
+
 ## 0.1.13 - 2026-09-18
 
 - feat(learning): pin ego-browser Skill 2.0.0 and local runtime 0.5.0.32.
