@@ -17,7 +17,7 @@ The official remote `ego-browser` Skill keeps its normal heredoc interface. Its 
 
 ## Release Status
 
-This source tree targets `0.1.15`. The tag-bound release manifest determines
+This source tree targets `0.1.16`. The tag-bound release manifest determines
 component readiness; root composition and artifact-bound canaries determine
 whether a production deployment may enable the capability.
 
@@ -73,7 +73,7 @@ Each request uses an X25519-wrapped ChaCha20-Poly1305 session key. Routing ident
 
 | Surface | Required value |
 | --- | --- |
-| Bridge, Device Client, remote wrapper | `0.1.15` |
+| Bridge, Device Client, remote wrapper | `0.1.16` |
 | Protocol | `ego-browser-bridge-v1` |
 | Official Skill | `2.0.0` |
 | Local `ego-browser` runtime | `0.5.0.32` |
@@ -103,14 +103,14 @@ Daily lifecycle operations are `status`, `repair`, `upgrade`, `pause`, `resume`,
 
 ## Advanced release installation
 
-The manual archive command is a low-level release/operator path. Install the published `0.1.15` macOS release from its archive, strict aggregate manifest, both Sigstore bundles, and an independently obtained signing-certificate SHA-256:
+The manual archive command is a low-level release/operator path. Install the published `0.1.16` macOS release from its archive, strict aggregate manifest, both Sigstore bundles, and an independently obtained signing-certificate SHA-256:
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.15.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.15.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.15.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.15.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.16.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.16.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.16.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.16.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```
@@ -125,7 +125,7 @@ The compatibility bootstrap performs dependency checks, installs ego lite when i
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.15 --confirm-local-trust
+  bash -s -- --version 0.1.16 --confirm-local-trust
 ```
 
 Older clients and custom automation may also register the Device Client and claim one exact remote session in the same run:
@@ -133,7 +133,7 @@ Older clients and custom automation may also register the Device Client and clai
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
   bash -s -- \
-    --version 0.1.15 \
+    --version 0.1.16 \
     --server https://agent-remote.example.com \
     --token USER_REGISTRATION_TOKEN \
     --session-id EXACT_TOOL_SESSION_ID \
@@ -145,7 +145,7 @@ In this compatibility bootstrap, a logged-in `agent-remote` CLI can delegate reg
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.15 --confirm-local-trust
+  bash -s -- --version 0.1.16 --confirm-local-trust
 ```
 
 Add `--session-id EXACT_TOOL_SESSION_ID --confirm-full-trust` only for explicit compatibility automation. The script installs a missing Homebrew `cosign`, authenticates the release archive and manifest before executing any packaged installer code, and verifies a pinned official ego lite installer. The first GUI onboarding must still be completed by the user; the script never guesses a candidate session. If an older CLI or Device Client is detected, it falls back to the explicit `--server`/`--token` flow. That argv-based fallback is restricted to isolated legacy maintenance; use a short-lived registration token and do not put it in shell history or chat logs.

@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## 0.1.16 - 2026-09-19
+
+- fix: validate installed release paths and recover upgrade enrollment (df07bf1)
+
 ## 0.1.15 - 2026-09-19
 
 - fix(lifecycle): recover expired enrollment and decode broker errors (f9a519a)
