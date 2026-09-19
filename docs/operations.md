@@ -82,6 +82,12 @@ confirmation. The Server derives
 the response and stores the canonical value in the owner-only active-binding
 handoff. Resume validates the same label again while advancing the generation.
 
+If enrollment reports `pending_expired`, explicitly retry `ensure --re-enroll`
+with a fresh user token through `--token-stdin`. The client validates the retained
+origin and keys before replacing the expired operation key. Device ID, generation,
+and private keys stay unchanged; subsequent retries reuse the new operation key.
+Ordinary `ensure` and `--force-refresh` do not discard an expired pending request.
+
 Rotate the device signing and encryption keys in place with a fresh user token:
 
 ```sh

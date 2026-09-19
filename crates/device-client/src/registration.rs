@@ -67,9 +67,12 @@ pub(super) async fn ensure(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let _registration_lock = store.lock_registration()?;
 
-    let pending = match store.load_pending_registration() {
+    let mut pending = match store.load_pending_registration() {
         Ok(value) => Some(value),
         Err(CredentialError::Missing) => None,
+        Err(CredentialError::PendingExpired) if has_option(&args, "--re-enroll") => {
+            Some(store.read_pending_registration()?)
+        }
         Err(CredentialError::PendingExpired) => {
             // Expiry requires explicit recovery, never a second identity.
             let _ = store.record_pending_registration_error(Some("pending_expired"));
@@ -183,6 +186,32 @@ pub(super) async fn ensure(
     if identity.needs_encryption_key_rotation() {
         return Err(CredentialError::Malformed.into());
     }
+    if let Some(value) = pending.as_mut().filter(|value| value.is_expired(now())) {
+        if !has_option(&args, "--re-enroll") {
+            return Err(CredentialError::PendingExpired.into());
+        }
+        if token.is_none() {
+            return Err("--token or --token-stdin is required for re-enrollment".into());
+        }
+        if identity.release_profile != release_profile
+            || identity.credential_profile != credential_profile
+        {
+            return Err(CredentialError::CompatibilityMismatch.into());
+        }
+        validate_requested_identity_context(
+            &server,
+            &release_profile,
+            &credential_profile,
+            existing_credential.as_ref(),
+            stored_identity.as_ref(),
+        )?;
+        // Replace only the expired operation after proving the retained identity.
+        value.enrollment_mode = "re_enroll".to_owned();
+        value.idempotency_key = new_idempotency_key();
+        value.created_at_unix = now();
+        value.last_error_code = None;
+        store.save_pending_registration(value)?;
+    }
     let enrollment_mode = pending
         .as_ref()
         .map(|value| value.enrollment_mode.clone())
@@ -212,6 +241,7 @@ pub(super) async fn ensure(
     if let Some(credential) = fresh_credential {
         let inputs = local_registration_inputs(store, &args, &identity)?;
         if inputs.policy_update.is_none()
+            && !has_option(&args, "--re-enroll")
             && (pending.is_some() || !has_option(&args, "--force-refresh"))
         {
             if pending.is_some() {

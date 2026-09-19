@@ -86,8 +86,8 @@ impl CredentialStore {
         Ok(pending)
     }
 
-    /// Reads pending state without expiry so diagnostics preserve recovery evidence.
-    fn read_pending_registration(&self) -> Result<PendingRegistration, CredentialError> {
+    /// Reads validated pending state without expiry for diagnostics and explicit recovery.
+    pub fn read_pending_registration(&self) -> Result<PendingRegistration, CredentialError> {
         let bytes = read_owner_file(&self.pending_registration_path)?;
         let pending: PendingRegistration =
             parse_strict_json(&bytes).map_err(|_| CredentialError::Malformed)?;

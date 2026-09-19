@@ -2,6 +2,8 @@ use super::*;
 use ego_browser_device::{migrate_legacy_device_store, StoredIdentityMetadata, CORE_CAPABILITIES};
 use tokio::io::AsyncReadExt;
 
+mod registration;
+
 #[cfg(unix)]
 #[test]
 fn legacy_default_store_migrates_without_overwriting_canonical_state() {

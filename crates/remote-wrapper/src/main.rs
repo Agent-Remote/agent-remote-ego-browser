@@ -68,6 +68,16 @@ struct BrokerResponse {
     error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExecuteErrorResponse {
+    protocol: String,
+    #[serde(rename = "type")]
+    message_type: String,
+    status: String,
+    error: String,
+}
+
 #[tokio::main]
 async fn main() {
     let result = run().await;
@@ -337,8 +347,32 @@ fn decode_response(
     cipher: &SessionCipher,
     permit: &RequestPermit,
 ) -> Result<InnerExecuteResponse, WrapperError> {
-    let envelope: OuterEnvelope =
-        parse_strict_json(frame).map_err(|error| WrapperError::Protocol(error.to_string()))?;
+    let envelope: OuterEnvelope = match parse_strict_json(frame) {
+        Ok(envelope) => envelope,
+        Err(error) => {
+            if let Ok(response) = parse_strict_json::<ExecuteErrorResponse>(frame) {
+                if response.protocol == PROTOCOL_VERSION
+                    && response.message_type == "execute_result"
+                    && response.status == "error"
+                    && matches!(
+                        response.error.as_str(),
+                        "bridge_unavailable"
+                            | "lease_renewal_required"
+                            | "lease_expired"
+                            | "binding_revoked"
+                            | "protocol_error"
+                            | "concurrency_conflict"
+                    )
+                {
+                    return Err(WrapperError::Status(response.error));
+                }
+                return Err(WrapperError::Protocol(
+                    "invalid broker error response".into(),
+                ));
+            }
+            return Err(WrapperError::Protocol(error.to_string()));
+        }
+    };
     envelope
         .validate(MAX_FRAME_BYTES)
         .map_err(|error| WrapperError::Protocol(error.to_string()))?;

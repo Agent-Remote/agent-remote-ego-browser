@@ -75,6 +75,11 @@ current="$HOME/Library/Application Support/Agent Remote Ego Browser/current"
 不同的 label，并把 canonical 值写入 owner-only active-binding handoff。resume 推进
 generation 时会再次校验同一 label。
 
+注册返回 `pending_expired` 时，显式执行 `ensure --re-enroll`，通过 `--token-stdin`
+提供新的用户 token。客户端核对保留的服务器来源与密钥后才替换过期请求的幂等键，
+保留设备 ID、generation 和私钥；后续重试复用新的幂等键。普通 `ensure` 和
+`--force-refresh` 不会丢弃过期请求。
+
 使用新的用户 token 原地轮换设备 signing key 与 encryption key：
 
 ```sh
