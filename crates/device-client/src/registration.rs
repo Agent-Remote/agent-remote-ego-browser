@@ -186,7 +186,10 @@ pub(super) async fn ensure(
     if identity.needs_encryption_key_rotation() {
         return Err(CredentialError::Malformed.into());
     }
-    if let Some(value) = pending.as_mut().filter(|value| value.is_expired(now())) {
+    if let Some(value) = pending.as_mut().filter(|value| {
+        value.is_expired(now())
+            || (has_option(&args, "--re-enroll") && value.enrollment_mode == "ensure")
+    }) {
         if !has_option(&args, "--re-enroll") {
             return Err(CredentialError::PendingExpired.into());
         }
@@ -205,7 +208,7 @@ pub(super) async fn ensure(
             existing_credential.as_ref(),
             stored_identity.as_ref(),
         )?;
-        // Replace only the expired operation after proving the retained identity.
+        // Explicit recovery gets a new operation key after proving the retained identity.
         value.enrollment_mode = "re_enroll".to_owned();
         value.idempotency_key = new_idempotency_key();
         value.created_at_unix = now();

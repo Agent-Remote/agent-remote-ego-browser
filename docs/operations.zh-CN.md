@@ -79,6 +79,9 @@ generation 时会再次校验同一 label。
 提供新的用户 token。客户端核对保留的服务器来源与密钥后才替换过期请求的幂等键，
 保留设备 ID、generation 和私钥；后续重试复用新的幂等键。普通 `ensure` 和
 `--force-refresh` 不会丢弃过期请求。
+显式 `--re-enroll` 也会为失败后保留的 `ensure` 请求生成新的幂等键，设备身份保持不变，
+后续重新登记重试复用新键。版本升级必须显式重新登记才能更新 Server 上的发布元数据；
+普通 ensure 仅在元数据不变时刷新凭据。
 
 使用新的用户 token 原地轮换设备 signing key 与 encryption key：
 

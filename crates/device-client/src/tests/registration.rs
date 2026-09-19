@@ -65,6 +65,34 @@ async fn explicit_reenrollment_recovers_expired_pending_without_replacing_identi
 }
 
 #[tokio::test]
+async fn explicit_reenrollment_replaces_failed_ensure_operation_without_changing_keys() {
+    let temporary = tempfile::tempdir().unwrap();
+    let store = CredentialStore::new(temporary.path().join("device")).unwrap();
+    let mut original = pending_fixture(&store, now());
+    original.enrollment_mode = "ensure".into();
+    original.last_error_code = Some("device_conflict".into());
+    store.save_pending_registration(&original).unwrap();
+    let key_path = temporary.path().join("device/ego-browser-device-key.bin");
+    let original_key = fs::read(&key_path).unwrap();
+    let args = vec![
+        "--re-enroll".into(),
+        "--token".into(),
+        "test-user-token".into(),
+    ];
+    crate::registration::ensure(&store, args.clone())
+        .await
+        .unwrap_err();
+    let recovered = store.load_pending_registration().unwrap();
+    assert_eq!(recovered.enrollment_mode, "re_enroll");
+    assert_ne!(recovered.idempotency_key, original.idempotency_key);
+    assert_eq!(recovered.device_id, original.device_id);
+    assert_eq!(recovered.device_generation, original.device_generation);
+    assert_eq!(fs::read(&key_path).unwrap(), original_key);
+    crate::registration::ensure(&store, args).await.unwrap_err();
+    assert_eq!(store.load_pending_registration().unwrap(), recovered);
+}
+
+#[tokio::test]
 async fn expired_recovery_rejects_implicit_or_mismatched_requests_without_losing_state() {
     for (options, expected) in [
         (vec![], "pending_expired"),

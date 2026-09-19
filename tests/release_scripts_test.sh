@@ -64,7 +64,9 @@ done
 printf '%s\n' '#!/bin/sh' 'exit 0' >"$lifecycle_release/installer/install-macos.sh"
 chmod 0500 "$lifecycle_release/installer/install-macos.sh"
 mkdir -p "$lifecycle_release/support"
-printf '%s\n' '#!/bin/sh' 'exit 0' >"$lifecycle_release/support/verify-community-release.sh"
+printf '%s\n' '#!/bin/sh' \
+  '[ -d "$1" ] && [ ! -L "$1" ] || exit 1' \
+  '[ "${FAKE_VERIFY_FAIL:-0}" != 1 ]' >"$lifecycle_release/support/verify-community-release.sh"
 chmod 0500 "$lifecycle_release/support/verify-community-release.sh"
 printf '%s\n' 0000000000000000000000000000000000000000000000000000000000000000 \
   >"$lifecycle_root/TRUSTED_CERTIFICATE_SHA256"
@@ -81,6 +83,19 @@ FAKE_LAUNCHCTL_LOG="$work/launchctl.log" HOME="$lifecycle_home" \
   EGO_BROWSER_INSTALL_ROOT="$lifecycle_root" EGO_BROWSER_LAUNCH_AGENTS_DIR="$lifecycle_agents" \
   bash "$root/installer/install-macos.sh" --setup --yes >/dev/null
 grep -F -- 'bootstrap gui/501' "$work/launchctl.log" >/dev/null
+FAKE_LAUNCHCTL_LOG="$work/repair-launchctl.log" HOME="$lifecycle_home" \
+  PATH="$work/lifecycle-bin:/usr/bin:/bin" \
+  EGO_BROWSER_INSTALL_ROOT="$lifecycle_root" EGO_BROWSER_LAUNCH_AGENTS_DIR="$lifecycle_agents" \
+  bash "$root/installer/install-macos.sh" --repair --yes >/dev/null
+grep -F -- 'bootstrap gui/501' "$work/repair-launchctl.log" >/dev/null
+if FAKE_VERIFY_FAIL=1 FAKE_LAUNCHCTL_LOG="$work/rejected-launchctl.log" HOME="$lifecycle_home" \
+  PATH="$work/lifecycle-bin:/usr/bin:/bin" \
+  EGO_BROWSER_INSTALL_ROOT="$lifecycle_root" EGO_BROWSER_LAUNCH_AGENTS_DIR="$lifecycle_agents" \
+  bash "$root/installer/install-macos.sh" --repair --yes >"$work/rejected-output" 2>&1; then
+  echo "lifecycle repair accepted a failed signature check" >&2
+  exit 1
+fi
+test ! -e "$work/rejected-launchctl.log"
 if FAKE_LAUNCHCTL_LOG="$work/upgrade-launchctl.log" HOME="$lifecycle_home" \
   PATH="$work/lifecycle-bin:/usr/bin:/bin" \
   EGO_BROWSER_INSTALL_ROOT="$lifecycle_root" EGO_BROWSER_LAUNCH_AGENTS_DIR="$lifecycle_agents" \
@@ -89,6 +104,17 @@ if FAKE_LAUNCHCTL_LOG="$work/upgrade-launchctl.log" HOME="$lifecycle_home" \
   exit 1
 fi
 grep -F -- 'refusing an implicit upgrade' "$work/upgrade-output" >/dev/null
+rm "$lifecycle_root/current"
+ln -s "$work" "$lifecycle_root/current"
+if FAKE_LAUNCHCTL_LOG="$work/escaped-launchctl.log" HOME="$lifecycle_home" \
+  PATH="$work/lifecycle-bin:/usr/bin:/bin" \
+  EGO_BROWSER_INSTALL_ROOT="$lifecycle_root" EGO_BROWSER_LAUNCH_AGENTS_DIR="$lifecycle_agents" \
+  bash "$root/installer/install-macos.sh" --setup --yes >"$work/escaped-output" 2>&1; then
+  echo "lifecycle setup accepted a release outside the managed directory" >&2
+  exit 1
+fi
+grep -F -- 'outside the managed releases directory' "$work/escaped-output" >/dev/null
+test ! -e "$work/escaped-launchctl.log"
 echo "existing-install lifecycle smoke passed"
 
 fake_wrapper="$work/ego-browser"

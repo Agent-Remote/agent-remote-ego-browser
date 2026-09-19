@@ -87,6 +87,10 @@ with a fresh user token through `--token-stdin`. The client validates the retain
 origin and keys before replacing the expired operation key. Device ID, generation,
 and private keys stay unchanged; subsequent retries reuse the new operation key.
 Ordinary `ensure` and `--force-refresh` do not discard an expired pending request.
+An explicit `--re-enroll` also replaces a failed pending `ensure` operation with a new
+idempotency key, preserving the device identity. Re-enrollment retries reuse that new key.
+Release upgrades must explicitly re-enroll to update the Server's release metadata;
+ordinary ensure only refreshes credentials for unchanged metadata.
 
 Rotate the device signing and encryption keys in place with a fresh user token:
 

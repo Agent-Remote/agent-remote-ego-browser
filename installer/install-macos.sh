@@ -76,7 +76,8 @@ run_existing_lifecycle() {
     echo "bridge_installer_unavailable: current Bridge release is missing" >&2
     exit 1
   fi
-  python3 - "$install_root" "$current" <<'PY'
+  local verified_release
+  verified_release=$(python3 - "$install_root" "$current" <<'PY'
 import os
 import sys
 from pathlib import Path
@@ -99,7 +100,9 @@ required = (
 for path in required:
     if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK if path.name.startswith("ego-browser-") or path.name == "install-macos.sh" else os.R_OK):
         raise SystemExit(f"managed Bridge release is incomplete: {path}")
+print(resolved)
 PY
+  )
   certificate_pin="$install_root/TRUSTED_CERTIFICATE_SHA256"
   if [ ! -f "$certificate_pin" ] || [ -L "$certificate_pin" ]; then
     echo "bridge_installer_unavailable: trusted release certificate pin is missing" >&2
@@ -127,8 +130,8 @@ if len(value) > 65:
 sys.stdout.buffer.write(value)
 PY
   )
-  version=$(tr -d '[:space:]' < "$current/VERSION")
-  "$current/support/verify-community-release.sh" "$current" "$expected_certificate_sha256" "$version"
+  version=$(tr -d '[:space:]' < "$verified_release/VERSION")
+  "$verified_release/support/verify-community-release.sh" "$verified_release" "$expected_certificate_sha256" "$version"
   bridge_plist="$launch_agents/dev.agentremote.ego-browser.bridge.plist"
   device_plist="$launch_agents/dev.agentremote.ego-browser.device.plist"
   for plist in "$bridge_plist" "$device_plist"; do
