@@ -315,19 +315,14 @@ esac
     let target_request = process_request(&config, "target-request");
     let target = tokio::spawn(async move {
         target_supervisor
-            .run_process(&target_request, "request-target", 1, target_cancel_rx)
+            .run_process(&target_request, target_cancel_rx)
             .await
     });
     let unrelated_supervisor = Arc::clone(&supervisor);
     let unrelated_request = process_request(&config, "unrelated-request");
     let unrelated = tokio::spawn(async move {
         unrelated_supervisor
-            .run_process(
-                &unrelated_request,
-                "request-unrelated",
-                2,
-                unrelated_cancel_rx,
-            )
+            .run_process(&unrelated_request, unrelated_cancel_rx)
             .await
     });
 
@@ -389,11 +384,47 @@ esac
     supervisor.clear_remote_requests();
     let (_after_cancel_tx, after_cancel_rx) = tokio::sync::watch::channel(false);
     let after = process_request(&config, "after-request");
-    let after_result = supervisor
-        .run_process(&after, "request-after", 3, after_cancel_rx)
-        .await;
+    let after_result = supervisor.run_process(&after, after_cancel_rx).await;
     assert_eq!(after_result.0, ExecutionStatus::Completed);
     assert!(after_result.2.contains("after-ok"));
+}
+
+#[tokio::test]
+async fn helper_guard_uses_private_short_sockets_with_long_request_paths() {
+    use std::os::unix::ffi::OsStrExt;
+    let root = tempfile::tempdir().expect("root");
+    let long_root = root.path().join("long-work-root-".repeat(12));
+    std::fs::create_dir(&long_root).expect("long root");
+    let allowed = root.path().canonicalize().expect("canonical root");
+    let input = allowed.join("input.txt");
+    std::fs::write(&input, b"verified").expect("input");
+    let mut guards = Vec::new();
+    for sequence in [99, 100, u64::MAX] {
+        let request_root = long_root.join(format!("request-{sequence}"));
+        std::fs::create_dir(&request_root).expect("request root");
+        let allowlist = Allowlist::new(vec![allowed.clone()], 1, AllowlistLimits::default())
+            .expect("allowlist");
+        let guard = FileGuardHandle::start(&request_root, allowlist)
+            .await
+            .expect("guard");
+        let socket = guard.socket_path.clone();
+        assert!(socket.as_os_str().as_bytes().len() <= 96);
+        let directory = socket.parent().expect("socket directory");
+        assert_eq!(
+            std::fs::metadata(directory).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(&socket).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(guard_request(&socket, &input).await["ok"], true);
+        guards.push((guard, socket));
+    }
+    for (guard, socket) in guards {
+        guard.stop().await;
+        assert!(!socket.parent().unwrap().exists());
+    }
 }
 
 #[tokio::test]
@@ -411,8 +442,7 @@ async fn helper_guard_stages_only_allowlisted_regular_files() {
         AllowlistLimits::default(),
     )
     .expect("allowlist");
-    let socket_root = tempfile::tempdir().expect("socket root");
-    let guard = FileGuardHandle::start(socket_root.path(), request_root.path(), 4, allowlist)
+    let guard = FileGuardHandle::start(request_root.path(), allowlist)
         .await
         .expect("guard");
 
@@ -507,16 +537,10 @@ async fn helper_guard_stages_only_allowlisted_regular_files() {
         },
     )
     .expect("limited allowlist");
-    let limited_socket = tempfile::tempdir().expect("limited socket root");
     let limited_request = tempfile::tempdir().expect("limited request root");
-    let limited_guard = FileGuardHandle::start(
-        limited_socket.path(),
-        limited_request.path(),
-        5,
-        limited_allowlist,
-    )
-    .await
-    .expect("limited guard");
+    let limited_guard = FileGuardHandle::start(limited_request.path(), limited_allowlist)
+        .await
+        .expect("limited guard");
     let limited_destination = limited_root_path.join("one.txt");
     std::fs::write(&limited_destination, b"old").expect("limited existing output");
     let first = guard_request_value(

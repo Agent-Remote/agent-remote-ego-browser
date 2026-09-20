@@ -131,14 +131,7 @@ impl BridgeSupervisor {
         }
         let (_request_cancel_tx, request_cancel_rx) = watch::channel(false);
         let started = Instant::now();
-        let response = self
-            .run_process(
-                &request,
-                &envelope.request_id,
-                envelope.sequence,
-                request_cancel_rx,
-            )
-            .await;
+        let response = self.run_process(&request, request_cancel_rx).await;
         drop(guard);
         let (status, exit_code, stdout, stderr, artifacts) = response;
         let inner = InnerExecuteResponse {
@@ -159,8 +152,6 @@ impl BridgeSupervisor {
     pub(crate) async fn run_process(
         &self,
         request: &InnerExecuteRequest,
-        _request_id: &str,
-        sequence: u64,
         mut request_cancellation: watch::Receiver<bool>,
     ) -> (
         ExecutionStatus,
@@ -216,14 +207,7 @@ impl BridgeSupervisor {
             );
         }
         let file_guard = match self.config.allowlist.clone() {
-            Some(allowlist) => match FileGuardHandle::start(
-                &self.config.work_root,
-                temp.path(),
-                sequence,
-                allowlist,
-            )
-            .await
-            {
+            Some(allowlist) => match FileGuardHandle::start(temp.path(), allowlist).await {
                 Ok(handle) => Some(handle),
                 Err(_) => {
                     return (

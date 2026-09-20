@@ -39,15 +39,14 @@ struct FileGuardState {
 
 pub(crate) struct FileGuardHandle {
     pub(crate) socket_path: PathBuf,
+    socket_directory: tempfile::TempDir,
     stop_tx: watch::Sender<bool>,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl FileGuardHandle {
     pub(crate) async fn start(
-        socket_root: &Path,
         request_root: &Path,
-        sequence: u64,
         allowlist: Allowlist,
     ) -> Result<Self, BridgeError> {
         let staging_root = request_root.join("helper-files");
@@ -55,22 +54,20 @@ impl FileGuardHandle {
             .await
             .map_err(BridgeError::Io)?;
         set_private_permissions(&staging_root).map_err(BridgeError::Io)?;
-        let socket_path = socket_root.join(format!("guard-{}-{sequence}.sock", std::process::id()));
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt;
-            if socket_path.as_os_str().as_bytes().len() > 96 {
-                return Err(BridgeError::ProtocolMessage(
-                    "helper guard socket path is too long".into(),
-                ));
-            }
-        }
+        // Unix socket addresses must stay short regardless of work-root or sequence length.
+        let socket_directory = tempfile::Builder::new()
+            .prefix("ego-guard-")
+            .tempdir_in("/tmp")
+            .map_err(BridgeError::Io)?;
+        set_private_permissions(socket_directory.path()).map_err(BridgeError::Io)?;
+        let socket_path = socket_directory.path().join("ipc.sock");
         let listener = UnixListener::bind(&socket_path).map_err(BridgeError::Io)?;
         set_private_permissions(&socket_path).map_err(BridgeError::Io)?;
         let (stop_tx, stop_rx) = watch::channel(false);
         let task = tokio::spawn(run_file_guard(listener, allowlist, staging_root, stop_rx));
         Ok(Self {
             socket_path,
+            socket_directory,
             stop_tx,
             task,
         })
@@ -79,7 +76,7 @@ impl FileGuardHandle {
     pub(crate) async fn stop(self) {
         self.stop_tx.send_replace(true);
         let _ = self.task.await;
-        let _ = std::fs::remove_file(&self.socket_path);
+        let _ = self.socket_directory.close();
     }
 }
 

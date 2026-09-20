@@ -154,14 +154,7 @@ impl BridgeSupervisor {
         let supervisor = Arc::clone(self);
         Ok(Box::pin(async move {
             let started = Instant::now();
-            let response = supervisor
-                .run_process(
-                    &request,
-                    &envelope.request_id,
-                    envelope.sequence,
-                    request_cancel_rx,
-                )
-                .await;
+            let response = supervisor.run_process(&request, request_cancel_rx).await;
             drop(guard);
             let (status, exit_code, stdout, stderr, artifacts) = response;
             let inner = InnerExecuteResponse {
