@@ -57,7 +57,7 @@ mkdir -p "$lifecycle_release/bin" "$lifecycle_release/installer" "$lifecycle_age
 printf '%s\n' '0.1.11' >"$lifecycle_release/VERSION"
 printf '%s\n' digest >"$lifecycle_release/ARCHIVE_SHA256"
 printf '%s\n' '{}' >"$lifecycle_release/SIGNING-EVIDENCE.json"
-for executable in ego-browser-bridge ego-browser-device; do
+for executable in ego-browser-bridge ego-browser-device node; do
   printf '%s\n' '#!/bin/sh' 'exit 0' >"$lifecycle_release/bin/$executable"
   chmod 0500 "$lifecycle_release/bin/$executable"
 done
@@ -346,7 +346,7 @@ chain_der="$work/chain-certificate.der"
 mkdir -p "$leaf_package/bin" "$leaf_bin"
 printf '\060\003\002\001\001' >"$leaf_der"
 printf '\060\003\002\001\002' >"$chain_der"
-for executable in ego-browser-bridge ego-browser-device; do
+for executable in ego-browser-bridge ego-browser-device node; do
   printf '#!/bin/sh\nexit 0\n' >"$leaf_package/bin/$executable"
   chmod 0700 "$leaf_package/bin/$executable"
 done
@@ -419,6 +419,9 @@ mkdir -p "$inventory_root/bin" "$inventory_root/installer" "$inventory_root/supp
 for relative in \
   bin/ego-browser-bridge \
   bin/ego-browser-device \
+  bin/node \
+  support/NODE-LICENSE \
+  support/node-runtime.json \
   installer/install-macos.sh \
   installer/uninstall-macos.sh \
   installer/rollback-macos.sh \
@@ -544,6 +547,9 @@ chmod 0700 "$fake_system/uname" "$fake_system/id" "$fake_system/launchctl" \
 for relative in \
   bin/ego-browser-bridge \
   bin/ego-browser-device \
+  bin/node \
+  support/NODE-LICENSE \
+  support/node-runtime.json \
   installer/install-macos.sh \
   installer/uninstall-macos.sh \
   installer/rollback-macos.sh \
@@ -566,6 +572,9 @@ printf '%s\n' "$current_version" >"$probe_root/VERSION"
 printf 'fixture\n' >"$probe_root/LICENSE"
 printf 'fixture\n' >"$probe_root/bin/ego-browser-bridge"
 printf 'fixture\n' >"$probe_root/bin/ego-browser-device"
+printf 'fixture\n' >"$probe_root/bin/node"
+printf 'fixture\n' >"$probe_root/support/NODE-LICENSE"
+printf '{}\n' >"$probe_root/support/node-runtime.json"
 printf 'fixture\n' >"$probe_root/installer/install-macos.sh"
 printf 'fixture\n' >"$probe_root/installer/uninstall-macos.sh"
 printf 'fixture\n' >"$probe_root/installer/rollback-macos.sh"

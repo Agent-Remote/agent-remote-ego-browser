@@ -46,6 +46,7 @@ pub(super) async fn run_task_space_monitor(
     executable: PathBuf,
     work_root: PathBuf,
     task_space: String,
+    native: bool,
     mut stop: tokio::sync::watch::Receiver<bool>,
 ) -> TaskSpaceMonitorOutcome {
     if !executable.is_absolute() || !work_root.is_absolute() {
@@ -63,6 +64,10 @@ pub(super) async fn run_task_space_monitor(
     command
         .arg("--execution-supervisor")
         .env_clear()
+        .env(
+            "EGO_BROWSER_SUPERVISED_NATIVE",
+            if native { "1" } else { "0" },
+        )
         .env("EGO_BROWSER_SUPERVISED_EXECUTABLE", executable)
         .env("EGO_BROWSER_ARTIFACT_DIR", &work_root)
         .env("EGO_BROWSER_DEFAULT_TASK_SPACE", &task_space)

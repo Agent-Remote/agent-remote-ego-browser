@@ -134,7 +134,7 @@ fn parse_credential_profile(value: &str) -> Result<CredentialProfile, BridgeErro
     }
 }
 
-fn is_production_profile(profile: ReleaseProfile) -> bool {
+pub(super) fn is_production_profile(profile: ReleaseProfile) -> bool {
     matches!(
         profile,
         ReleaseProfile::CommunityLocalTrust | ReleaseProfile::DeveloperId

@@ -66,6 +66,18 @@ for binary in ego-browser-bridge ego-browser-device ego-browser-learning-bundle;
     "$staging/bin/$binary"
 done
 
+node_work=$(mktemp -d "${TMPDIR:-/tmp}/ego-browser-node.XXXXXX")
+trap 'rm -rf -- "$node_work"' EXIT
+for architecture in arm64 x64; do
+  python3 "$repo_root/scripts/fetch-node-runtime.py" "darwin-$architecture" "$node_work/$architecture"
+done
+lipo -create "$node_work/arm64/node" "$node_work/x64/node" -output "$staging/bin/node"
+chmod 0555 "$staging/bin/node"
+codesign --force --sign "$signing_identity" --options runtime --timestamp=none \
+  --entitlements "$repo_root/assets/node-entitlements.plist" "$staging/bin/node"
+install -m 0444 "$node_work/arm64/NODE-LICENSE" "$staging/support/NODE-LICENSE"
+install -m 0444 "$repo_root/assets/node-runtime.json" "$staging/support/node-runtime.json"
+
 verify_binary() {
   local binary=$1 certificate_prefix actual details
   codesign --verify --strict --verbose=2 "$binary"
@@ -85,6 +97,7 @@ verify_binary() {
 verify_binary "$staging/bin/ego-browser-bridge"
 verify_binary "$staging/bin/ego-browser-device"
 verify_binary "$staging/bin/ego-browser-learning-bundle"
+verify_binary "$staging/bin/node"
 install -m 0444 "$repo_root/VERSION" "$staging/VERSION"
 install -m 0444 "$repo_root/LICENSE" "$staging/LICENSE"
 install -m 0555 "$repo_root/installer/install-macos.sh" "$staging/installer/install-macos.sh"

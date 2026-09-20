@@ -238,6 +238,7 @@ pub(super) async fn run_outbound(args: BridgeArgs) -> Result<(), BridgeError> {
         config.executable.clone(),
         config.work_root.clone(),
         config.default_task_space.clone(),
+        arguments::is_production_profile(config.release_profile),
         task_space_stop_rx,
     ));
     let (renew_stop, renew_rx) = tokio::sync::watch::channel(false);

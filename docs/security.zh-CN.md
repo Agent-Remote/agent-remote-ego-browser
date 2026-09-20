@@ -11,8 +11,9 @@ Cookie、localhost 与局域网、该用户可读的文件和环境、dynamic im
 或 takeover 其他 Task Space 与标签页，也可以直接使用 CDP。
 
 在正常 wrapper 路径中，Node broker 从 nonce 绑定的 tool session 派生专用名称，并通过
-一次性 permit 传递。Bridge preamble 只把 `useOrCreateTaskSpace` 映射到该名称，刻意不包装
-claim、takeover、Tab 或 CDP helper。Server 在 claim 时独立派生同一 canonical 名称、拒绝
+一次性 permit 传递。Bridge preamble 把 `taskSpace` 和 `useOrCreateTaskSpace` 映射到该名称。
+文件保护覆盖 v2 Page、FileChooser、Download 对象；显式 claim/takeover 的目标不变。
+Server 在 claim 时独立派生同一 canonical 名称、拒绝
 不匹配值，并把它返回给 Device Client 校验后写入 owner-only handoff。Bridge 只接受与该
 绑定值一致的 request label 和 Task Space scope。
 
@@ -78,9 +79,11 @@ readiness 证据。
 
 ## 停止保证
 
-supervisor 创建进程组，限制执行与输出，并在超时、撤销、lease 丢失、relay 断开或用户
+远端代码运行在已签名、随发行包提供的独立 Node.js 进程组；共享原生 runtime 只处理
+受请求生命周期约束的浏览器调用。supervisor 限制执行与输出，并在超时、撤销、lease 丢失、relay 断开或用户
 接管时终止受监管进程组。这能保证受监管执行单元停止，但不能撤销浏览器、文件或网络
-副作用，也不能保证清除恶意同 UID 代码主动脱离监管后创建的进程。
+副作用，也不能保证清除恶意同 UID 代码主动脱离监管后创建的进程。已经派发给浏览器的
+操作通常无法同步取消；断开后禁止继续派发新命令。
 
 接管时先 revoke 本地 admission，并等待受监管执行终止，再用内容无关的
 `task_space_takeover` 原因请求 generation-bound Server pause。monitor 故障使用

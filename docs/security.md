@@ -16,8 +16,9 @@ or take over other Task Spaces and tabs or use raw CDP.
 
 For the normal wrapper path, the Node broker derives the dedicated name from
 the nonce-bound tool session and carries it in the one-time permit. The Bridge
-preamble remaps only `useOrCreateTaskSpace` to that name. It deliberately does
-not wrap claim, takeover, tab, or CDP helpers. The Server independently derives
+preamble remaps `taskSpace` and `useOrCreateTaskSpace` to that name. File guards
+cover v2 Page, FileChooser and Download handles, including handles returned by
+explicit claim/takeover without changing their selected target. The Server independently derives
 the same canonical name at claim time, rejects mismatches, and returns it for
 the Device Client to validate and store in the owner-only handoff. The Bridge
 accepts only request labels and Task Space scopes that match that bound value.
@@ -105,11 +106,14 @@ data. They cannot be used as a production transport or readiness substitute.
 
 ## Stop guarantees
 
-The supervisor creates a process group, bounds execution and output, and kills
+The signed, bundled Node runtime hosts remote code in its own process group;
+the shared native ego lite runtime only serves lifetime-bound browser calls.
+The supervisor bounds execution and output, and kills
 the managed group on timeout, revocation, lease loss, relay loss, or user
 takeover. This guarantees cessation of the supervised execution unit. It does
 not undo browser, filesystem, or network side effects and cannot guarantee
-removal of a process that hostile same-UID code deliberately detached.
+removal of a process that hostile same-UID code deliberately detached. Dispatched
+browser-side operations cannot generally be rolled back or synchronously cancelled.
 
 For a takeover, local admission is revoked and managed executions are allowed
 to terminate before the Bridge requests a generation-bound Server pause with

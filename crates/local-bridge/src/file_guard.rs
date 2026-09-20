@@ -355,109 +355,21 @@ fn commit_allowlisted_output(
 pub(crate) fn helper_guard_script(
     socket_path: Option<&Path>,
     default_task_space: &str,
+    artifact_dir: &Path,
     script: &str,
 ) -> Result<String, BridgeError> {
-    if !is_dedicated_task_space(default_task_space) {
+    if !is_dedicated_task_space(default_task_space) || !artifact_dir.is_absolute() {
         return Err(BridgeError::ProtocolMessage(
-            "invalid default task space".into(),
+            "invalid helper context".into(),
         ));
     }
-    let wrapper = if let Some(socket_path) = socket_path {
-        let socket = socket_path
-            .to_str()
-            .ok_or_else(|| BridgeError::ProtocolMessage("helper guard path is invalid".into()))?;
-        let socket = serde_json::to_string(socket)
-            .map_err(|_| BridgeError::ProtocolMessage("helper guard path is invalid".into()))?;
-        format!(
-            r#"{{
-const originalUploadFile = globalThis.uploadFile;
-const originalSetInputFiles = globalThis.setInputFiles;
-const originalDownloadSaveAs = globalThis.download && globalThis.download.saveAs;
-const guardSocketPath = {socket};
-const guardFilePath = async (operation, filePath, token) => {{
-  if (typeof filePath !== 'string' || filePath.length === 0) throw new Error('artifact_error: helper file path rejected');
-  const net = await import('node:net');
-  return await new Promise((resolve, reject) => {{
-    const client = net.createConnection({{ path: guardSocketPath }});
-    let response = '';
-    client.setEncoding('utf8');
-    client.on('connect', () => client.end(JSON.stringify({{ operation, path: filePath, token }}) + '\n'));
-    client.on('data', (chunk) => {{
-      response += chunk;
-      if (Buffer.byteLength(response, 'utf8') > 16384) client.destroy(new Error('artifact_error: helper guard response exceeds limit'));
-    }});
-    client.on('error', () => reject(new Error('artifact_error: helper file validation unavailable')));
-    client.on('end', () => {{
-      try {{
-        const parsed = JSON.parse(response);
-        if (!parsed.ok || typeof parsed.path !== 'string') throw new Error('rejected');
-        resolve(parsed);
-      }} catch (_) {{
-        reject(new Error('artifact_error: helper file path rejected'));
-      }}
-    }});
-  }});
-}};
-const validateUploadPaths = async (filePath) => {{
-  if (Array.isArray(filePath)) {{
-    const staged = [];
-    for (const value of filePath) staged.push((await guardFilePath('upload', value, null)).path);
-    return staged;
-  }}
-  return (await guardFilePath('upload', filePath, null)).path;
-}};
-globalThis.uploadFile = async function(target, filePath, ...rest) {{
-  if (typeof originalUploadFile !== 'function') throw new Error('artifact_error: uploadFile helper unavailable');
-  const stagedPath = await validateUploadPaths(filePath);
-  return await originalUploadFile.call(this, target, stagedPath, ...rest);
-}};
-globalThis.setInputFiles = async function(target, filePath, ...rest) {{
-  if (typeof originalSetInputFiles !== 'function') throw new Error('artifact_error: setInputFiles helper unavailable');
-  const stagedPath = await validateUploadPaths(filePath);
-  return await originalSetInputFiles.call(this, target, stagedPath, ...rest);
-}};
-if (globalThis.download && typeof globalThis.download === 'object') {{
-  globalThis.download.saveAs = async function(filePath, ...rest) {{
-    if (typeof originalDownloadSaveAs !== 'function') throw new Error('artifact_error: download.saveAs helper unavailable');
-    const prepared = await guardFilePath('prepare_download', filePath, null);
-    const result = await originalDownloadSaveAs.call(this, prepared.path, ...rest);
-    await guardFilePath('commit_download', prepared.path, prepared.token);
-    return result;
-  }};
-}}
-}}
-"#
-        )
-    } else {
-        r#"{
-const rejectHelperFile = async function() {
-  throw new Error('artifact_error: helper file allowlist is not configured');
-};
-globalThis.uploadFile = rejectHelperFile;
-globalThis.setInputFiles = rejectHelperFile;
-if (globalThis.download && typeof globalThis.download === 'object') {
-  globalThis.download.saveAs = rejectHelperFile;
-}
-}
-"#
-        .to_owned()
-    };
-    let task_space = serde_json::to_string(default_task_space)
-        .map_err(|_| BridgeError::ProtocolMessage("invalid default task space".into()))?;
-    // Redirect normal Skill selection lazily. Eager selection would fail before
-    // an explicitly confirmed takeOverTaskSpace/claimTaskSpace recovery can run.
-    let task_space_wrapper = format!(
-        r#"{{
-const agentRemoteDefaultTaskSpace = {task_space};
-const agentRemoteUseOrCreateTaskSpace = globalThis.useOrCreateTaskSpace;
-if (typeof agentRemoteUseOrCreateTaskSpace !== 'function') {{
-  throw new Error('ego_runtime_unavailable: useOrCreateTaskSpace helper unavailable');
-}}
-globalThis.useOrCreateTaskSpace = async function(_nameOrId, ...rest) {{
-  return await agentRemoteUseOrCreateTaskSpace.call(globalThis, agentRemoteDefaultTaskSpace, ...rest);
-}};
-}}
-"#
-    );
-    Ok(format!("{wrapper}{task_space_wrapper}{script}"))
+    let context = serde_json::json!({
+        "socket": socket_path,
+        "taskSpace": default_task_space,
+        "artifactDir": artifact_dir,
+    });
+    Ok(format!(
+        "{}\nawait installRemoteHelpers({context});\n{script}",
+        include_str!("helper_adapter.js")
+    ))
 }

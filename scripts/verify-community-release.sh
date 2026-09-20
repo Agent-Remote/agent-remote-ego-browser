@@ -39,6 +39,7 @@ verify_binary() {
 
 verify_binary "$package_root/bin/ego-browser-bridge"
 verify_binary "$package_root/bin/ego-browser-device"
+verify_binary "$package_root/bin/node"
 python3 - "$package_root/SIGNING-EVIDENCE.json" "$expected_certificate_sha256" "$expected_version" <<'PY'
 import json
 import re

@@ -112,10 +112,10 @@ Normal requests use Task Space then Tab cooperative locks. Conflicts fail
 immediately. Missing, wildcard, or unparseable scope takes the binding lock.
 These locks avoid accidental workflow races; full-trust code can bypass them.
 For the official Skill's normal path, the Bridge preamble remaps
-`useOrCreateTaskSpace(...)` to the permit-derived dedicated name. It does not
-eagerly select a space or wrap `claimTaskSpace`, `takeOverTaskSpace`, raw CDP,
-or other full-trust helpers, so explicit handoff recovery and the documented
-bypass semantics remain intact.
+`taskSpace(...)` and its legacy `useOrCreateTaskSpace(...)` alias to the
+permit-derived dedicated name. Selection remains lazy. Explicit claim/takeover
+keeps the requested target; returned TaskSpace, Page, FileChooser and Download
+objects receive the current helper file guards.
 
 After activation, the Bridge starts a separate read-only ownership monitor
 through the same execution supervisor used for requests. Its script calls only
@@ -135,7 +135,13 @@ binding and owner-only paused handoff so a separately confirmed `resume` can
 advance `binding_generation`; a user `stop` is terminal, clears the handoff,
 and requires a fresh `connect` instead of resume. The Bridge terminates its
 managed process group and never replays a script whose result is unknown.
-Completed side effects cannot be rolled back, and a deliberately detached
+Production requests run in a separate bundled Node.js process group, with an
+isolated worker and a private lifetime-bound RPC channel to the native ego lite
+context. The shared embedded Node Helper never runs the remote script and is
+never killed to cancel it. Channel loss rejects subsequent native commands;
+the supervisor kills the script and ordinary descendants even during CPU-bound
+work. Native browser operations already dispatched can still have effects;
+completed side effects cannot be rolled back, and a deliberately detached
 same-UID process is outside the supervisor's guarantee.
 
 On Task Space takeover, the Bridge first revokes local admission and
@@ -174,6 +180,11 @@ The helper file policy canonicalizes configured roots and rejects traversal,
 symlinks, hard links, non-regular files, and configured size/count excesses.
 It protects helper-mediated upload and artifact paths only. Full-trust script
 code still has the filesystem and network rights of the Bridge user.
+
+The release includes a checksum-pinned Node.js runtime, signed with the same
+project certificate as the Bridge, plus its license and source manifest. Scripts
+receive the request artifact directory explicitly. Page screenshots always write
+there and the remote wrapper validates and materializes the images on Linux.
 
 Bridge and Device Client metric events are content-free JSON lines with finite
 status, direction, and media-type values. Their sources, alert conditions,

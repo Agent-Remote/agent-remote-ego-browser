@@ -577,23 +577,28 @@ async fn helper_guard_stages_only_allowlisted_regular_files() {
 
 #[test]
 fn helper_preamble_fails_closed_without_an_allowlist() {
-    let script =
-        helper_guard_script(None, "agent-remote:session-test", "cliLog('done')").expect("preamble");
+    let script = helper_guard_script(
+        None,
+        "agent-remote:session-test",
+        std::path::Path::new("/tmp/artifacts"),
+        "cliLog('done')",
+    )
+    .expect("preamble");
     assert!(script.contains("helper file allowlist is not configured"));
-    assert!(script.contains("globalThis.setInputFiles = rejectHelperFile"));
-    assert!(script.contains("globalThis.download.saveAs = rejectHelperFile"));
-    assert!(script.contains("const agentRemoteDefaultTaskSpace = \"agent-remote:session-test\";"));
-    assert!(script.contains("globalThis.useOrCreateTaskSpace = async function"));
-    assert!(script
-        .contains("agentRemoteUseOrCreateTaskSpace.call(globalThis, agentRemoteDefaultTaskSpace"));
-    assert!(!script.contains("globalThis.takeOverTaskSpace ="));
-    assert!(!script.contains("globalThis.claimTaskSpace ="));
+    assert!(script.contains("\"taskSpace\":\"agent-remote:session-test\""));
+    assert!(script.contains("globalThis.taskSpace = globalThis.useOrCreateTaskSpace"));
     assert!(script.ends_with("cliLog('done')"));
 }
 
 #[test]
 fn helper_preamble_rejects_a_non_dedicated_task_space() {
-    assert!(helper_guard_script(None, "user-owned-space", "cliLog('done')").is_err());
+    assert!(helper_guard_script(
+        None,
+        "user-owned-space",
+        std::path::Path::new("/tmp/artifacts"),
+        "cliLog('done')"
+    )
+    .is_err());
 }
 
 async fn guard_request(socket: &std::path::Path, path: &std::path::Path) -> serde_json::Value {

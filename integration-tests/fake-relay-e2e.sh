@@ -30,6 +30,11 @@ fi
 test "\${1:-}" = "nodejs" || exit 64
 script=\$(/bin/cat)
 case "\$script" in
+  *script-error-marker*)
+    printf 'before-script-error\n'
+    printf 'intentional-script-error-detail\n' >&2
+    exit 1
+    ;;
   *task-space-preamble-behavior*)
     printf '%s' "\$script" | node -e '
 const fs = require("node:fs");
@@ -109,8 +114,8 @@ for round in 1 2 3; do
   output=$(printf "cliLog('remote-script-round-%s')\n" "$round" | run_wrapper nodejs)
   grep -Fq "runtime-round=$round" <<<"$output"
   grep -Fq "remote-script-round-$round" <<<"$output"
-  grep -Fq 'const agentRemoteDefaultTaskSpace = "agent-remote:test-session";' <<<"$output"
-  ! grep -Fq 'const agentRemoteDefaultTaskSpace = "user-owned-space";' <<<"$output"
+  grep -Fq '"taskSpace":"agent-remote:test-session"' <<<"$output"
+  ! grep -Fq '"taskSpace":"user-owned-space"' <<<"$output"
 done
 test "$(tr -d '[:space:]' < "$counter")" = "3"
 
@@ -131,6 +136,14 @@ grep -Fq '"claimHelper":"function"' <<<"$preamble_behavior"
 grep -Fq '"takeoverHelper":"function"' <<<"$preamble_behavior"
 ! grep -Fq '"selectedName":"must-not-be-selected"' <<<"$preamble_behavior"
 test "$(tr -d '[:space:]' < "$counter")" = "3"
+
+if printf '// script-error-marker\n' | run_wrapper nodejs >"$work/script-error.out" 2>"$work/script-error.err"; then
+  echo "script failure was reported as success" >&2
+  exit 1
+fi
+grep -Fq before-script-error "$work/script-error.out"
+grep -Fq intentional-script-error-detail "$work/script-error.err"
+grep -Fq ScriptError "$work/script-error.err"
 
 doctor=$(run_wrapper --doctor)
 grep -Fq '"bridge":"ready"' <<<"$doctor"

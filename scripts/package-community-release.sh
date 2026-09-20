@@ -9,6 +9,9 @@ out_dir=${OUT_DIR:-$repo_root/dist/release}
 for required in \
   bin/ego-browser-bridge \
   bin/ego-browser-device \
+  bin/node \
+  support/NODE-LICENSE \
+  support/node-runtime.json \
   installer/install-macos.sh \
   installer/uninstall-macos.sh \
   installer/rollback-macos.sh \

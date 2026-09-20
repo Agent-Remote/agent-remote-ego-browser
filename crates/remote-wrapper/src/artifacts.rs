@@ -8,12 +8,6 @@ pub(super) async fn emit_response(response: InnerExecuteResponse) -> Result<(), 
             "response output exceeds limit".into(),
         ));
     }
-    if response.status != ego_browser_bridge_protocol::ExecutionStatus::Completed {
-        return Err(WrapperError::Status(format!("{:?}", response.status)));
-    }
-    if response.exit_code.is_some_and(|code| code != 0) {
-        return Err(WrapperError::Exit(response.exit_code.unwrap_or_default()));
-    }
     // Default artifact paths remain readable after this process exits. Later
     // invocations prune the private cache using a bounded TTL and count.
     let directory = if response.artifacts.is_empty() {
@@ -96,6 +90,12 @@ pub(super) async fn emit_response(response: InnerExecuteResponse) -> Result<(), 
     out.flush()
         .await
         .map_err(|error| WrapperError::Io(error.to_string()))?;
+    if response.status != ego_browser_bridge_protocol::ExecutionStatus::Completed {
+        return Err(WrapperError::Status(format!("{:?}", response.status)));
+    }
+    if let Some(code) = response.exit_code.filter(|code| *code != 0) {
+        return Err(WrapperError::Exit(code));
+    }
     Ok(())
 }
 

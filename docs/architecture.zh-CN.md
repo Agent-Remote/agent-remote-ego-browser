@@ -83,10 +83,9 @@ admission 要求至少剩余 20 秒。单次执行上限 120 秒，每个 bindin
 
 正常请求按 Task Space、Tab 顺序使用协作锁；冲突立即失败。scope 缺失、为 wildcard 或
 无法解析时使用 binding 锁。这些锁只避免正常工作流竞态；全信任代码可以绕过。
-对于官方 Skill 的正常路径，Bridge preamble 会把 `useOrCreateTaskSpace(...)` 映射到 permit
-派生的专用名称。preamble 不会提前选择空间，也不会包装 `claimTaskSpace`、
-`takeOverTaskSpace`、原始 CDP 或其他全信任 helper，因此明确的 handoff 恢复和文档所述的
-绕过语义保持不变。
+官方 Skill 的 `taskSpace(...)` 和旧版 `useOrCreateTaskSpace(...)` 都映射到 permit
+派生的专用名称，仍然按需选择空间。显式 claim/takeover 保留原目标；返回的
+TaskSpace、Page、FileChooser、Download 对象统一适配当前文件保护接口。
 
 激活后，Bridge 会通过与普通请求相同的 execution supervisor 启动一个独立、只读的 ownership
 monitor。monitor 脚本只调用 ego lite 原生 `listTaskSpaces()` API 并读取匹配空间的
@@ -101,7 +100,13 @@ Bridge 死亡会关闭 pipe 并终止 monitor runtime，不会留下独立 brows
 变化都会停止新请求。用户 `pause` 会保留 binding 与 owner-only paused handoff，之后经单独
 确认的 `resume` 推进 `binding_generation`；用户 `stop` 是终态，会清除 handoff，之后必须
 重新 `connect`，不能 resume。Bridge 从外部终止受监管进程组，结果未知的脚本绝不自动重放。
-已经发生的副作用无法回滚；主动脱离监管的同 UID 进程不在 supervisor 保证范围内。
+生产脚本在独立的、随发行包提供的 Node.js 进程组中执行，通过私有 RPC 通道调用原生
+浏览器 API。共享 Node Helper 不执行远端脚本，取消请求也不终止它。通道断开后拒绝
+后续原生命令，supervisor 终止脚本及普通子进程，包含 CPU 忙循环。已经派发的浏览器
+操作仍可能产生结果；已发生的副作用无法回滚，主动脱离进程组的同 UID 进程不在保证范围内。
+
+发行包内的 Node.js 使用校验和固定来源，并由同一项目证书签名，附带许可证和来源清单。
+请求环境显式提供 artifact 目录，Page 截图统一写入该目录，再由远端 wrapper 校验并保存到 Linux。
 
 Task Space 被接管时，Bridge 先 revoke 本地 admission 并等待受监管执行终止，再要求
 Server 用准确 generation 和 `task_space_takeover` 原因暂停 binding。monitor 丢失采用相同

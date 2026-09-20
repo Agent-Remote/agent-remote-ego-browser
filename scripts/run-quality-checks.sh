@@ -7,6 +7,7 @@ cd "$root"
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --locked
+node --test tests/helper_adapter_test.mjs
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 bash tests/learning_bundle_cli_test.sh
 bash tests/release_scripts_test.sh

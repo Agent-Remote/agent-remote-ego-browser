@@ -228,18 +228,18 @@ run_device() {
 cli_home="$work/cli-home"
 cli_user_home="$work/cli-user-home"
 install_root="$work/bridge-install"
-release="$install_root/releases/0.1.12"
+release="$install_root/releases/$bridge_version"
 installer_log="$work/setup-installer-args.log"
 uninstaller_log="$work/uninstaller.log"
 device_args_log="$work/setup-device-args.log"
 mkdir -p "$cli_home/secrets" "$cli_user_home" "$release/bin" "$release/installer"
 chmod 0700 "$cli_home" "$cli_home/secrets" "$cli_user_home" "$install_root" \
   "$install_root/releases" "$release" "$release/bin" "$release/installer"
-printf '%s\n' '0.1.12' >"$release/VERSION"
-cat >"$release/SIGNING-EVIDENCE.json" <<'EOF'
+printf '%s\n' "$bridge_version" >"$release/VERSION"
+cat >"$release/SIGNING-EVIDENCE.json" <<EOF
 {
   "schema_version": 1,
-  "version": "0.1.12",
+  "version": "$bridge_version",
   "profile": "community-local-trust",
   "signer_certificate_sha256": "1b1527d1c0ac6b3a1e95ccd7d4e6462ece9f5a42d2f4d309d09170588a4197e5"
 }
@@ -810,8 +810,8 @@ for round in 1 2 3; do
   output=$(printf "cliLog('real-relay-round-%s')\n" "$round" | run_wrapper nodejs)
   grep -Fq "real-relay-runtime-round=$round" <<<"$output"
   grep -Fq "real-relay-round-$round" <<<"$output"
-  grep -Fq "const agentRemoteDefaultTaskSpace = \"agent-remote:$tool_session_id\";" <<<"$output"
-  ! grep -Fq 'const agentRemoteDefaultTaskSpace = "user-owned-space";' <<<"$output"
+  grep -Fq "\"taskSpace\":\"agent-remote:$tool_session_id\"" <<<"$output"
+  ! grep -Fq '"taskSpace":"user-owned-space"' <<<"$output"
 done
 test "$(tr -d '[:space:]' <"$counter")" = "3"
 

@@ -131,10 +131,39 @@ pub async fn run_execution_supervisor() -> Result<i32, BridgeError> {
         .await
         .map_err(BridgeError::Io)?;
 
-    let mut command = Command::new(executable);
+    let socket_directory = tempfile::Builder::new()
+        .prefix("egb-native-")
+        .tempdir()
+        .map_err(BridgeError::Io)?;
+    set_private_permissions(socket_directory.path()).map_err(BridgeError::Io)?;
+    let node = env::current_exe()
+        .map_err(BridgeError::Io)?
+        .with_file_name("node");
+    let runner = format!(
+        "const nativeHostSource = {};\nconst nativeWorkerSource = {};\n{}",
+        serde_json::to_string(include_str!("native_host.js"))
+            .map_err(|_| BridgeError::Unavailable)?,
+        serde_json::to_string(include_str!("native_worker.js"))
+            .map_err(|_| BridgeError::Unavailable)?,
+        include_str!("native_coordinator.js")
+    );
+
+    let native = env::var("EGO_BROWSER_SUPERVISED_NATIVE").as_deref() == Ok("1");
+    let mut command = Command::new(if native { &node } else { &executable });
+    command.env_clear();
+    if native {
+        command
+            .arg("-e")
+            .arg(runner)
+            .env("EGO_BROWSER_NATIVE_EXECUTABLE", &executable)
+            .env(
+                "EGO_BROWSER_NATIVE_SOCKET",
+                socket_directory.path().join("host.sock"),
+            );
+    } else {
+        command.arg("nodejs");
+    }
     command
-        .arg("nodejs")
-        .env_clear()
         .env("EGO_BROWSER_ARTIFACT_DIR", &artifact_dir)
         // The official captureScreenshot() default uses os.tmpdir().
         .env("TMPDIR", &artifact_dir)
@@ -157,6 +186,7 @@ pub async fn run_execution_supervisor() -> Result<i32, BridgeError> {
         });
     }
     let mut runtime = command.spawn().map_err(BridgeError::Io)?;
+    let runtime_group = runtime.id();
     let mut runtime_stdin = match runtime.stdin.take() {
         Some(stdin) => stdin,
         None => {
@@ -180,6 +210,11 @@ pub async fn run_execution_supervisor() -> Result<i32, BridgeError> {
     let mut peer_probe = [0_u8; 1];
     tokio::select! {
         status = runtime.wait() => {
+            // A completed script may still have ordinary descendants in its group.
+            #[cfg(unix)]
+            if let Some(pid) = runtime_group {
+                unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+            }
             match status {
                 Ok(status) => Ok(status.code().unwrap_or(1)),
                 Err(error) => {

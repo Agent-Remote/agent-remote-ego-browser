@@ -240,6 +240,7 @@ impl BridgeSupervisor {
         let guarded_script = match helper_guard_script(
             file_guard.as_ref().map(|guard| guard.socket_path.as_path()),
             &request.default_task_space,
+            &artifact_dir,
             &request.script,
         ) {
             Ok(script) => script,
@@ -283,6 +284,17 @@ impl BridgeSupervisor {
         if independently_supervised {
             command
                 .arg("--execution-supervisor")
+                .env(
+                    "EGO_BROWSER_SUPERVISED_NATIVE",
+                    if matches!(
+                        self.config.release_profile,
+                        ReleaseProfile::CommunityLocalTrust | ReleaseProfile::DeveloperId
+                    ) {
+                        "1"
+                    } else {
+                        "0"
+                    },
+                )
                 .env("EGO_BROWSER_SUPERVISED_EXECUTABLE", &self.config.executable)
                 .env("EGO_BROWSER_ARTIFACT_DIR", &artifact_dir)
                 .env(

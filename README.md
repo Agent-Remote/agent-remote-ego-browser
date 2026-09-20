@@ -184,13 +184,25 @@ Use the normal wrapper interface from that remote session:
 
 ```sh
 ego-browser <<'EOF'
-const page = await useOrCreateTaskSpace('ignored-by-bound-session');
+const task = await taskSpace('ignored-by-bound-session');
+const page = task.page('p1');
 console.log(await page.snapshot());
 EOF
 
 ego-browser --doctor
 ego-browser --reload
 ```
+
+Screenshots are collected automatically, including calls with an explicit `path`.
+Read the Linux path printed as `artifact: ...` by the wrapper; a path returned inside
+the script is temporary Mac staging. Uploads, file choosers, download saves, and
+`page.fetch({saveAs})` use the configured helper allowlist. Script failures retain
+bounded stdout/stderr and a nonzero exit status.
+
+`--doctor` reports Node binding and relay observations. Its `local_execution_available`
+is `null` because a healthy lease alone does not prove local execution is available.
+Some ego lite builds do not implement CDP `Browser.getVersion`; use
+`await ego.getBrowserVersion()` for the installed runtime version instead.
 
 Manage the binding lifecycle explicitly:
 
@@ -222,6 +234,16 @@ AGENT_REMOTE_INTEGRATION_REDIS_URL=redis://127.0.0.1:6379/14 \
 ```
 
 That gate uses the real Server relay and Node broker; only the final local `ego-browser` executable is a fixture. A separate real ego lite canary remains mandatory before release-readiness changes.
+
+`integration-tests/native-runtime-e2e.mjs` checks the real native host, output,
+environment propagation, and timer/CPU/child-process cancellation. Build the
+debug Bridge, place the pinned `node` beside it using
+`scripts/fetch-node-runtime.py darwin-arm64 target/debug` (`darwin-x64` on Intel),
+then run it with `EGO_BROWSER_NATIVE_EXECUTABLE` set to the native CLI's absolute
+path. Optional `EGO_BROWSER_NATIVE_TASK_SPACE` must name an existing Agent-owned
+test space; its Page canary uses a synthetic site at `127.0.0.1:18765` and leaves
+the space open for caller cleanup. `EGO_BROWSER_NATIVE_TEST_SCRIPT` adds a bounded
+script for broader API regression. Neither option creates a test space.
 
 ## Release
 

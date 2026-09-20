@@ -326,6 +326,9 @@ import sys
 required = {
     "bin/ego-browser-bridge",
     "bin/ego-browser-device",
+    "bin/node",
+    "support/NODE-LICENSE",
+    "support/node-runtime.json",
     "installer/install-macos.sh",
     "installer/uninstall-macos.sh",
     "installer/rollback-macos.sh",
@@ -472,6 +475,7 @@ else
   printf '%s\n' "$actual_archive_sha256" > "$staging/ARCHIVE_SHA256"
   find "$staging" -type f -exec chmod 0400 {} +
   chmod 0500 "$staging/bin/ego-browser-bridge" "$staging/bin/ego-browser-device" \
+    "$staging/bin/node" \
     "$staging/installer/install-macos.sh" "$staging/installer/uninstall-macos.sh" \
     "$staging/installer/rollback-macos.sh" "$staging/support/release_manifest.py" \
     "$staging/support/clear_verified_quarantine.py" \

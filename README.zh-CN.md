@@ -182,13 +182,23 @@ CLI 会校验可选的 `--server-url` 必须与已配置服务器一致，并通
 
 ```sh
 ego-browser <<'EOF'
-const page = await useOrCreateTaskSpace('ignored-by-bound-session');
+const task = await taskSpace('ignored-by-bound-session');
+const page = task.page('p1');
 console.log(await page.snapshot());
 EOF
 
 ego-browser --doctor
 ego-browser --reload
 ```
+
+截图会自动收集回传，包括显式指定 `path` 的调用。请使用 wrapper 输出的
+`artifact: ...` Linux 路径；脚本内部返回的路径只是 Mac 临时目录。文件上传、
+文件选择器、下载保存和 `page.fetch({saveAs})` 都执行 helper 白名单校验。
+脚本失败时保留有长度限制的 stdout/stderr，并返回非零退出码。
+
+`--doctor` 只报告 Node 观察到的绑定和 relay 状态，`local_execution_available`
+为 `null`，健康 lease 不代表本机一定可执行。部分 ego lite 版本没有实现 CDP
+`Browser.getVersion`，查询运行时版本请使用 `await ego.getBrowserVersion()`。
 
 显式管理 binding 生命周期：
 
@@ -220,6 +230,14 @@ AGENT_REMOTE_INTEGRATION_REDIS_URL=redis://127.0.0.1:6379/14 \
 ```
 
 该门禁使用真实 Server relay 和 Node broker，只有最后的本地 `ego-browser` executable 是 fixture。修改 release readiness 前仍必须单独执行真实 ego lite canary。
+
+`integration-tests/native-runtime-e2e.mjs` 验证真实原生宿主、输出、环境变量和
+定时器/CPU/子进程取消。构建 debug Bridge 后，通过
+`scripts/fetch-node-runtime.py darwin-arm64 target/debug` 将固定校验和的 Node
+放在 Bridge 旁边（Intel 使用 `darwin-x64`），设置 `EGO_BROWSER_NATIVE_EXECUTABLE`
+为原生 CLI 绝对路径再运行。可选的 `EGO_BROWSER_NATIVE_TASK_SPACE` 必须指向已存在的
+Agent 测试空间；页面测试使用 `127.0.0.1:18765` 合成站点，空间由调用者最后清理。
+`EGO_BROWSER_NATIVE_TEST_SCRIPT` 可增加有超时限制的 API 回归脚本。这些选项不会创建测试空间。
 
 ## 发布
 
