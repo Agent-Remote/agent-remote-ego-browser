@@ -14,20 +14,29 @@ async function serveNativeBrowser(socket) {
     if (Array.isArray(value)) return value.map(encode);
     const methods = {};
     const fields = {};
-    const names = new Set(Object.keys(value));
+    const properties = {};
+    const descriptors = new Map(Object.entries(Object.getOwnPropertyDescriptors(value))
+      .filter(([, descriptor]) => descriptor.enumerable || descriptor.get || descriptor.set));
     for (let prototype = Object.getPrototypeOf(value); prototype && prototype !== Object.prototype;
       prototype = Object.getPrototypeOf(prototype)) {
-      for (const name of Object.getOwnPropertyNames(prototype)) if (name !== 'constructor') names.add(name);
+      for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(prototype))) {
+        if (name !== 'constructor' && !Object.hasOwn(value, name) && !descriptors.has(name)) descriptors.set(name, descriptor);
+      }
     }
-    for (const name of names) {
-      const item = value[name];
+    for (const [name, descriptor] of descriptors) {
+      // SDK accessors can change after navigation and must run only when read.
+      if (descriptor.get || descriptor.set) {
+        properties[name] = descriptor.enumerable;
+        continue;
+      }
+      const item = descriptor.value;
       if (typeof item === 'function') methods[name] = ['page', 'userPage', 'help', 'url', 'suggestedFilename', 'isMultiple'].includes(name);
       else fields[name] = encode(item);
     }
-    if (!Object.keys(methods).length) return fields;
+    if (!Object.keys(methods).length && !Object.keys(properties).length) return fields;
     let id = ids.get(value);
     if (id === undefined) { id = ++nextId; ids.set(value, id); values.set(id, value); }
-    return { kind: 'handle', id, fields, methods };
+    return { kind: 'handle', id, fields, methods, properties };
   };
   const decode = value => {
     if (!value || typeof value !== 'object') return value;
@@ -66,12 +75,12 @@ async function serveNativeBrowser(socket) {
       void dispatch(JSON.parse(line));
     }
   });
-  async function dispatch({ call, id, method, args }) {
+  async function dispatch({ call, id, method, args, operation = 'call' }) {
     if (!active) return;
     let reply;
     try {
       const object = values.get(id);
-      const result = await object[method](...decode(args));
+      const result = operation === 'get' ? object[method] : await object[method](...decode(args));
       reply = { call, value: encode(result) };
     } catch (error) {
       reply = { call, error: { message: error?.message || String(error), details: {

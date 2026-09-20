@@ -16,9 +16,9 @@ const unwrap = reply => {
   if (reply.error) throw Object.assign(new Error(reply.error.message), reply.error.details);
   return decode(reply.value);
 };
-const rpc = (id, method, args, synchronous) => {
+const rpc = (id, method, args, synchronous, operation = 'call') => {
   const call = ++sequence;
-  const message = { call, id, method, args: encode(args) };
+  const message = { call, id, method, args: encode(args), operation };
   if (!synchronous) return new Promise((resolve, reject) => {
     pending.set(call, { resolve, reject });
     port.postMessage(message);
@@ -40,12 +40,20 @@ const decode = value => {
   if (!value || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map(decode);
   if (value.kind !== 'handle') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, decode(item)]));
-  if (handles.has(value.id)) return handles.get(value.id);
-  const object = {};
-  Object.defineProperty(object, '__remoteHandle', { value: value.id });
-  handles.set(value.id, object);
+  let object = handles.get(value.id);
+  if (!object) {
+    object = {};
+    Object.defineProperty(object, '__remoteHandle', { value: value.id });
+    handles.set(value.id, object);
+  }
   for (const [key, item] of Object.entries(value.fields)) object[key] = decode(item);
+  for (const [key, enumerable] of Object.entries(value.properties || {})) {
+    if (!Object.hasOwn(object, key)) Object.defineProperty(object, key, {
+      enumerable, get: () => rpc(value.id, key, [], true, 'get'),
+    });
+  }
   for (const [method, synchronous] of Object.entries(value.methods)) {
+    if (Object.hasOwn(object, method)) continue;
     object[method] = (...args) => method === 'waitForURL' && typeof args[0] === 'function'
       ? waitForURLPredicate(object, ...args)
       : rpc(value.id, method, args, synchronous);
