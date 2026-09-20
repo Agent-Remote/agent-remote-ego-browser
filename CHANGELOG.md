@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## 0.1.17 - 2026-09-20
+
+- fix(runtime): supervise native scripts and restore browser lifecycle compatibility (425b1dc)
+
 ## 0.1.16 - 2026-09-19
 
 - fix: validate installed release paths and recover upgrade enrollment (df07bf1)
