@@ -2,6 +2,10 @@
 
 All notable changes to this repository are recorded here.
 
+## 0.1.18 - 2026-09-20
+
+- fix(bridge): keep helper socket addresses short and private (a0a7f1c)
+
 ## 0.1.17 - 2026-09-20
 
 - fix(runtime): supervise native scripts and restore browser lifecycle compatibility (425b1dc)

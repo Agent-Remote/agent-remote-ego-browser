@@ -5,7 +5,7 @@ This is the low-level release, compatibility, and recovery runbook. Ordinary use
 when they are ready to select and authorize one remote session. That managed path discovers the
 Server, credential, release profile, and certificate pin; it does not require users to copy a token
 or digest. The explicit values below are for release operators, custom deployments, and older clients.
-The `0.1.17` components require a published, signed release and separately certified root
+The `0.1.18` components require a published, signed release and separately certified root
 composition before production enablement.
 
 ## Prerequisites
@@ -28,7 +28,7 @@ To perform dependency checks, install ego lite when it is missing, and install t
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Agent-Remote/agent-remote-ego-browser/main/scripts/install.sh | \
-  bash -s -- --version 0.1.17 --confirm-local-trust
+  bash -s -- --version 0.1.18 --confirm-local-trust
 ```
 
 The bootstrap script authenticates the archive and manifest before executing the packaged installer, then invokes that signed installer again; it does not bypass archive, manifest, Sigstore, certificate-pin, or runtime-version checks. The logged-in macOS user must complete the first ego lite GUI onboarding. If `agent-remote` is logged in, the script discovers it and uses `agent-remote ego-browser register` without asking for a token; `--server` is optional and is accepted only when it matches the configured server. Add `--session-id` and `--confirm-full-trust` to claim one exact session; without an exact session ID the script registers only and never guesses a claim. Older CLI/Device Client releases fall back to `--server` plus a manual token.
@@ -37,10 +37,10 @@ The bootstrap script authenticates the archive and manifest before executing the
 
 ```sh
 ./installer/install-macos.sh \
-  --archive agent-remote-ego-browser-macos-universal-0.1.17.tar.gz \
-  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.17.tar.gz.sigstore.json \
-  --manifest agent-remote-ego-browser-0.1.17.release-manifest.json \
-  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.17.release-manifest.json.sigstore.json \
+  --archive agent-remote-ego-browser-macos-universal-0.1.18.tar.gz \
+  --archive-sigstore-bundle agent-remote-ego-browser-macos-universal-0.1.18.tar.gz.sigstore.json \
+  --manifest agent-remote-ego-browser-0.1.18.release-manifest.json \
+  --manifest-sigstore-bundle agent-remote-ego-browser-0.1.18.release-manifest.json.sigstore.json \
   --certificate-sha256 EXPECTED_64_HEX_DIGEST \
   --confirm-local-trust
 ```
